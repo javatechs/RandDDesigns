@@ -1,3 +1,18 @@
+__Name__ = 'Tile'
+__Comment__ = 'Creates a tile model in your doc if open.'
+__Author__ = ''
+__Version__ = '0.0.1'
+__Date__ = '2021-12-06'
+__License__ = 'GNU GENERAL PUBLIC LICENSE'
+__Web__ = ''
+__Wiki__ = ''
+__Icon__ = 'icon.png'
+__Help__ = ''
+__Status__ = 'Alpha'
+__Requires__ = 'FreeCAD >= v0.19 with Assembly 4 Workbench Installed.'
+__Communication__ = ''
+__Files__ = ''
+
 '''
     Create Tile Macro
     Description:
@@ -24,10 +39,10 @@ sys.path.append(os.path.dirname( __file__ ))
 
 # Local macro variables
 docName  = "Unnamed"
-tileName = "Tile"
+tileName = "tile"
 
 # Defaults for user entered values
-unitWidth = 3
+unitWidth = 4
 unitLength = 3
 tileWidth = 10*unitWidth
 tileLength = 10*unitLength
@@ -42,7 +57,9 @@ class tile:
     def __init__(self):
         self.docObj = None
         self.theParts = None
-        self.tileBody = None
+        self.partBody = None
+        self.lcs = None
+        self.extendedEdge = True
     '''
     FreeCAD organizes models in files called documents.
     If an active document exists, select that for use
@@ -73,16 +90,16 @@ class tile:
 
 
     ''' 
-    Create a basic tile as a body object container
+    Create a Part and Body object for model container
     ''' 
-    def createBody_Tile(self, tileName):
-        newTile = App.activeDocument().addObject('App::Part',tileName)
+    def createPart(self, partName):
+        newTile = App.activeDocument().addObject('App::Part',partName)
         # Get the name of the new tile.
         # If Part named Tile already exists, append counting number.
-        tileName = newTile.Label
+        partName = newTile.Label
         App.activeDocument().Tip = newTile
         # Get tile object
-        tileObj = self.docObj.getObject(tileName)
+        tileObj = self.docObj.getObject(partName)
 
         # Select Parts, if we have an assembly
         if self.theParts is not None:
@@ -95,24 +112,30 @@ class tile:
         Gui.ActiveDocument.ActiveView.setActiveObject('part', tileObj)
 
         # Add LCS object
-        lcs = tileObj.newObject('PartDesign::CoordinateSystem','LCS_tile')
-        lcs.MapMode = 'ObjectXY'
-        lcs.Support = newTile.Origin.OriginFeatures[0]
+        self.lcs = tileObj.newObject('PartDesign::CoordinateSystem','LCS_'+partName)
+        self.lcs.MapMode = 'ObjectXY'
+        self.lcs.Support = newTile.Origin.OriginFeatures[0]
 
         # Create  a body for this part
         Gui.ActiveDocument.ActiveView.setActiveObject('part', tileObj)
-        self.tileBody = App.activeDocument().addObject('PartDesign::Body','Body')
+        self.partBody = App.activeDocument().addObject('PartDesign::Body','Body')
 
         # Move Body to Part name TileXXX
-        tileObj.addObject(self.tileBody)
-        Gui.Selection.addSelection(self.tileBody)
+        tileObj.addObject(self.partBody)
+        Gui.Selection.addSelection(self.partBody)
+        # Actual name assigned by FC
+        return partName
 
+    ''' 
+    Create a basic tile as a body object container
+    ''' 
+    def createObject_Tile(self):
         # Create tile sketch
         sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "Sketch")
-        self.tileBody.addObject(sketchObj)
+        self.partBody.addObject(sketchObj)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[3] is the xy plane
-        sketchObj.Support = self.tileBody.Origin.OriginFeatures[3]
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[3]
 
         # Draw tile and extrude
         geoList = []
@@ -150,7 +173,7 @@ class tile:
         # Make invisible
         sketchObj.Visibility=False
 
-        padObj = self.tileBody.newObject('PartDesign::Pad','basic tile')
+        padObj = self.partBody.newObject('PartDesign::Pad','basic tile')
         padObj.Profile = sketchObj
         padObj.Length = 4.0
 
@@ -169,22 +192,22 @@ class tile:
 
         #sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "Sketch")
         sketchObj = self.docObj.addObject("Sketcher::SketchObject", "Sketch")
-        self.tileBody.addObject(sketchObj)
+        self.partBody.addObject(sketchObj)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[3] is the xy plane
-        sketchObj.Support = self.tileBody.Origin.OriginFeatures[3]
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[3]
         sketchObj.Visibility=False
 
         geoList = []
         g1=sketchObj.addGeometry(Part.Circle(App.Vector(0,0,0), App.Vector(0,0,1), insertDia/2), False)
         sketchObj.addConstraint(Sketcher.Constraint('Diameter',0,insertDia))
         # Horz & Vert: 
-        # Spreadsheet.tileWidth / 2 - 10
-        # Spreadsheet.tileLength / 2 - 10
+        # tileWidth / 2 - 10
+        # tileLength / 2 - 10
         sketchObj.addConstraint(Sketcher.Constraint('DistanceX', -1, 1, g1, 3, -(thw-10)))
         sketchObj.addConstraint(Sketcher.Constraint('DistanceY', -1, 1, g1, 3, thl-10))
         # Pocket
-        pocket = self.tileBody.newObject('PartDesign::Pocket','mount hole')
+        pocket = self.partBody.newObject('PartDesign::Pocket','mount hole')
         pocket.Profile = sketchObj
         # 3.5 + (thruMountHole ? 0 : 1)
         len = 3.5
@@ -200,11 +223,11 @@ class tile:
     Create a 2D array of Mount Hole objects.
     '''
     def createObject_MountHoleArray(self, pocket, sketchObj):
-        multiTransform = self.tileBody.newObject('PartDesign::MultiTransform','hole array')
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','hole array')
         multiTransform.Originals = [pocket,]
-        holePatV = self.tileBody.newObject('PartDesign::LinearPattern','LinearPattern')
+        holePatV = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
         holePatV.Direction = (sketchObj,['V_Axis'])
-        # Spreadsheet.tileLength - 20 < 1 ? 1 : Spreadsheet.tileLength - 20
+        # tileLength - 20 < 1 ? 1 : tileLength - 20
         len = tileLength - 20
         if tileLength - 20 < 1:
             len=1 
@@ -212,9 +235,9 @@ class tile:
         holePatV.Occurrences = unitLength - 1
         holePatV.Reversed = 1
 
-        holePatH = self.tileBody.newObject('PartDesign::LinearPattern','LinearPattern')
+        holePatH = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
         holePatH.Direction = (sketchObj,['H_Axis'])
-        # Spreadsheet.tileWidth - 20 < 1 ? 1 : Spreadsheet.tileWidth - 20
+        # tileWidth - 20 < 1 ? 1 : tileWidth - 20
         len = tileWidth - 20
         if tileWidth - 20 < 1:
         	len=1 
@@ -227,7 +250,7 @@ class tile:
 
 
     ''' 
-    Verticle Slot Body
+    Verticle Slot or Key Body
 
        1/| 
     > 0| |2 'Slot diagram'
@@ -240,34 +263,52 @@ class tile:
     orient      = 'N'orth, 'S'outh, 'E'ast, 'W'est
     '''
 
-    def createObject_Slot(self, afterObj, xorg,yorg,orient):
+    def createObject_SlotKey(self, afterObj, xorg, yorg, orient, key):
         ## Create new sketch
-        name = "vert slot sketch"
-        if orient!='E':
-            name = "horz slot sketch"
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name)
-        self.tileBody.insertObject(sketchObj, afterObj, True)
+        dir = "horz"
+        if orient=='E':
+            dir = "vert"
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir + " slot sketch")
+        self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
-        # OriginFeatures[3] is the xy plane
-        sketchObj.Support = self.tileBody.Origin.OriginFeatures[3]
         sketchObj.Visibility=False
+        # OriginFeatures[3] is the XY plane
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[3]
 
+        if orient=='U':
+            # OriginFeatures[5] is the YZ plane
+            sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
+
+        # Slot sizes
+        narrow = 4/2
+        wide = 7/2
+        depth = 5
+        if key:
+            # Key sizes
+            narrow = 3.6/2
+            wide = 6.6/2
+            depth = 4.85
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
         geoList = []
         # Create line segments
         # p4 <- p3
         # p1 -> p2 /\
         if orient=='E':
-            p1=App.Vector(xorg  , yorg-2  , 0.0)
-            p2=App.Vector(xorg  , yorg+2  , 0.0)
-            p3=App.Vector(xorg+5, yorg+3.5, 0.0)
-            p4=App.Vector(xorg+5, yorg-3.5, 0.0)
+            p1=App.Vector(xorg      , yorg-narrow, 0.0)
+            p2=App.Vector(xorg      , yorg+narrow, 0.0)
+            p3=App.Vector(xorg+depth, yorg+wide  , 0.0)
+            p4=App.Vector(xorg+depth, yorg-wide  , 0.0)
+        elif orient=='W':
+            p1=App.Vector(xorg      , yorg-narrow, 0.0)
+            p2=App.Vector(xorg      , yorg+narrow, 0.0)
+            p3=App.Vector(xorg-depth, yorg+wide  , 0.0)
+            p4=App.Vector(xorg-depth, yorg-wide  , 0.0)
         else:
-            p1=App.Vector(xorg-2,   yorg  , 0.0)
-            p2=App.Vector(xorg+2,   yorg  , 0.0)
-            p3=App.Vector(xorg+3.5, yorg+5, 0.0)
-            p4=App.Vector(xorg-3.5, yorg+5, 0.0)
-            
+            p1=App.Vector(xorg-narrow, yorg      , 0.0)
+            p2=App.Vector(xorg+narrow, yorg      , 0.0)
+            p3=App.Vector(xorg+wide  , yorg+depth, 0.0)
+            p4=App.Vector(xorg-wide  , yorg+depth, 0.0)
+
         geoList.append(Part.LineSegment(p1,p2))
         geoList.append(Part.LineSegment(p2,p3))
         geoList.append(Part.LineSegment(p3,p4))
@@ -279,33 +320,43 @@ class tile:
         ## sketchObj.fillet(0,1,App.Vector(0.0,0.5,0),App.Vector(0.5,0.0,0),0.5,True,True)
         ## sketchObj.fillet(1,2,App.Vector(0.0,0.5,0),App.Vector(0.5,0.0,0),0.5,True,True)
         '''
-        # Pocket
-        pocket = self.tileBody.newObject('PartDesign::Pocket','vert slot')
+        # If key
+        if key:
+            # Key
+            pocket = self.partBody.newObject('PartDesign::Pad',dir+' key')
+            len = 3.5
+            pocket.Reversed = 0
+        else:
+            # Slot
+            pocket = self.partBody.newObject('PartDesign::Pocket',dir+' slot')
+            len = 3.5
+            pocket.Reversed = 1
         pocket.Profile = sketchObj
-        # 3.5 + (thruMountHole ? 0 : 1)
-        len = 3.5
         pocket.Length = len 
-        pocket.Reversed = 1
         pocket.Visibility=True
-        self.tileBody.removeObject(pocket)
-        self.tileBody.insertObject(pocket, afterObj, True)
+        self.partBody.removeObject(pocket)
+        self.partBody.insertObject(pocket, afterObj, True)
         return pocket, sketchObj
 
     '''
-    Using the slot object, create a linear and then polar array.
+    Using the slot object, create a linear array.
     '''
-    def createObject_SlotArray(self,pocket, sketchObj, orient):
-        multiTransform = self.tileBody.newObject('PartDesign::MultiTransform','slot array')
-        multiTransform.Originals = [pocket,]
-        holePatV = self.tileBody.newObject('PartDesign::LinearPattern','LinearPattern')
+    def createObject_SlotKeyArray(self, inputObject, sketchObj, orient):
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','slot array')
+        multiTransform.Originals = [inputObject,]
+        holePatV = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
 
         holePatV.Direction = (sketchObj,['V_Axis'])
         dim = tileLength
         unit = unitLength
-        if orient != 'E':
+        if orient == 'S':
             holePatV.Direction = (sketchObj,['H_Axis'])
             dim = tileWidth
             unit = unitWidth
+        elif orient=='U':
+            holePatV.Direction = (sketchObj,['H_Axis'])
+            dim = tileLength
+            unit = unitLength
         # len - 20 < 1 ? 1 : len - 20
         len = dim - 20
         if dim - 20 < 1:
@@ -313,36 +364,49 @@ class tile:
         holePatV.Length = len
         holePatV.Occurrences = unit - 1
         holePatV.Reversed = 0
+
+        multiTransform.Transformations = [holePatV]
+        self.partBody.removeObject(multiTransform)
+        self.partBody.insertObject(multiTransform, inputObject, True)
         
-        polar = self.tileBody.newObject('PartDesign::PolarPattern','PolarPattern001')
+        return multiTransform
+    '''
+    Using the input slot or key object, create a linear and then polar array.
+    '''
+    def createObject_SlotKeyArrayPolar(self, inputObject, sketchObj, orient):
+        multiTransform = self.createObject_SlotKeyArray(inputObject, sketchObj, orient)
+
+        polar = self.partBody.newObject('PartDesign::PolarPattern','PolarPattern001')
         polar.Axis = (sketchObj,['N_Axis'])
         polar.Angle = 360
         polar.Occurrences = 2
         polar.Visibility = False
 
-        multiTransform.Transformations = [holePatV,polar]
-        self.tileBody.removeObject(multiTransform)
-        self.tileBody.insertObject(multiTransform, pocket, True)
+        multiTransform.Transformations = [multiTransform.Transformations[0],polar]
+        self.partBody.removeObject(multiTransform)
+        self.partBody.insertObject(multiTransform, inputObject, True)
         
         return multiTransform
 
     '''
     Connector tunnel
     '''
-    def createObject_Connector(self, afterObj, orient):
+    def createObject_Connector(self, afterObj, orient, key):
         ## Create new sketch
         sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "connector sketch")
-        self.tileBody.insertObject(sketchObj, afterObj, True)
+        self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
-        sketchObj.Support = self.tileBody.Origin.OriginFeatures[4]
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
         len = tileLength
         wid = tileWidth
-        if orient != 'E':
+        if orient == 'S':
             # OriginFeatures[5] is the YZ plane
-            sketchObj.Support = self.tileBody.Origin.OriginFeatures[5]
+            sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
             len = tileWidth
             wid = tileLength
+        elif orient == 'W':
+            pass
         sketchObj.Visibility=False
 
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
@@ -351,43 +415,52 @@ class tile:
         # Height = 2mm
         # Width = 4mm
         # Length = tileLength - 18
-        p1=App.Vector(wid/2,0,0)
-        p2=App.Vector(wid/2,2,0)
-        p3=App.Vector(wid/2-2,2,0)
-        p4=App.Vector(wid/2-2,0,0)
+        p1=App.Vector(-wid/2  ,0,0)
+        p2=App.Vector(-wid/2  ,2,0)
+        p3=App.Vector(-wid/2+2,2,0)
+        p4=App.Vector(-wid/2+2,0,0)
+        if orient == 'W':
+            p3=App.Vector(-wid/2-2,2,0)
+            p4=App.Vector(-wid/2-2,0,0)
         geoList.append(Part.LineSegment(p1,p2))
         geoList.append(Part.LineSegment(p2,p3))
         geoList.append(Part.LineSegment(p3,p4))
         geoList.append(Part.LineSegment(p4,p1))
         sketchObj.addGeometry(geoList,False)
 
-        # Pocket
-        pocket = self.tileBody.newObject('PartDesign::Pocket','connector')
+        # Pad(key=True) or Pocket(slot)
+        if key:
+            pocket = self.partBody.newObject('PartDesign::Pad','connector')
+        else:
+            pocket = self.partBody.newObject('PartDesign::Pocket','connector')
         pocket.Profile = sketchObj
 
         pocket.Length = len - 18
         pocket.Reversed = 0
         pocket.Midplane = 1
         pocket.Visibility=True
-        self.tileBody.removeObject(pocket)
-        self.tileBody.insertObject(pocket, afterObj, True)
+        self.partBody.removeObject(pocket)
+        self.partBody.insertObject(pocket, afterObj, True)
         return pocket, sketchObj
 
     '''
     Latch 
     '''
     def createObject_Latch(self, afterObj, orient):
+        dir = "horz"
+        if orient=='E':
+            dir = "vert"
         ## Create new sketch
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "latch sketch")
-        self.tileBody.insertObject(sketchObj, afterObj, True)
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir+" latch sketch")
+        self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
-        sketchObj.Support = self.tileBody.Origin.OriginFeatures[4]
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
         len = tileLength
         wid = tileWidth
         if orient != 'E':
             # OriginFeatures[5] is the YZ plane
-            sketchObj.Support = self.tileBody.Origin.OriginFeatures[5]
+            sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
             len = tileWidth
             wid = tileLength
         sketchObj.Visibility=False
@@ -414,7 +487,7 @@ class tile:
         sketchObj.addGeometry(geoList,False)
 
         # Pad
-        newObj = self.tileBody.newObject('PartDesign::Pad','vert latch')
+        newObj = self.partBody.newObject('PartDesign::Pad', dir+' latch')
         newObj.Profile = sketchObj
 
         newObj.Length = len - 12
@@ -422,77 +495,235 @@ class tile:
         newObj.Midplane = 1
         newObj.Visibility=True
         # Insert in the correct place
-        self.tileBody.removeObject(newObj)
-        self.tileBody.insertObject(newObj, afterObj, True)
+        self.partBody.removeObject(newObj)
+        self.partBody.insertObject(newObj, afterObj, True)
         return newObj, sketchObj
 
     '''
     Create connector latch then a polar array from the connector.
     '''
     def createObject_ConnectorLatchArray(self, afterObj, sketchObj, connectorArray, latchArray):
-        multiTransform = self.tileBody.newObject('PartDesign::MultiTransform','connector latch array')
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','connector latch array')
         multiTransform.Originals = [connectorArray, latchArray,]
 
-        polar = self.tileBody.newObject('PartDesign::PolarPattern','PolarPattern001')
+        polar = self.partBody.newObject('PartDesign::PolarPattern','PolarPattern001')
         polar.Axis = (sketchObj,['V_Axis'])
         polar.Angle = 360
         polar.Occurrences = 2
         polar.Visibility = False
 
         multiTransform.Transformations = [polar]
-        self.tileBody.removeObject(multiTransform)
-        self.tileBody.insertObject(multiTransform, afterObj, True)
+        self.partBody.removeObject(multiTransform)
+        self.partBody.insertObject(multiTransform, afterObj, True)
         # Insert in the correct place
-        self.tileBody.removeObject(multiTransform)
-        self.tileBody.insertObject(multiTransform, afterObj, True)
+        self.partBody.removeObject(multiTransform)
+        self.partBody.insertObject(multiTransform, afterObj, True)
         
         return multiTransform
 
+    '''
+    Bracket supports the 90deg   
+    '''
+    def createObject_BracketBacker(self, afterObj, orient):
+        
+#         sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir+" latch sketch")
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "bracket backer sketch")
+        self.partBody.insertObject(sketchObj, afterObj, True)
+        sketchObj.MapMode='FlatFace'
+        # OriginFeatures[4] is the XZ plane
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
+        len = tileLength
+        wid = tileWidth
+        geoList = []
+        # A drawing in 8 points!
+        p1=App.Vector(-wid/2-5  , 9.5,0)
+        p2=App.Vector(-wid/2-4  , 9.5,0)
+        p3=App.Vector(-wid/2-4  , 4,0)
+        p4=App.Vector(-wid/2    , 4,0)
+        p5=App.Vector(-wid/2    , 0,0)
+        p6=App.Vector(-wid/2+5.5, 0,0)
+        p7=App.Vector(-wid/2+5.5,-1,0)
+        p8=App.Vector(-wid/2-5  ,-1,0)
+        geoList.append(Part.LineSegment(p1,p2))
+        geoList.append(Part.LineSegment(p2,p3))
+        geoList.append(Part.LineSegment(p3,p4))
+        geoList.append(Part.LineSegment(p4,p5))
+        geoList.append(Part.LineSegment(p5,p6))
+        geoList.append(Part.LineSegment(p6,p7))
+        geoList.append(Part.LineSegment(p7,p8))
+        geoList.append(Part.LineSegment(p8,p1))
+        sketchObj.addGeometry(geoList,False)
+        sketchObj.Visibility = False
+
+        pad = self.partBody.newObject('PartDesign::Pad','bracket backer')
+        pad.Profile = sketchObj
+
+
+        if self.extendedEdge:
+            len -=0.1
+        else:
+            len -=10
+        pad.Length = len
+        pad.Midplane = 1
+        pad.Visibility = True
+        self.partBody.removeObject(pad)
+        self.partBody.insertObject(pad, afterObj, True)
+        return pad, sketchObj
+    '''
+    Latch 
+    '''
     def refreshScreen(self, lastObj):
         App.activeDocument().recompute()
         Gui.Selection.clearSelection()
-        Gui.Selection.addSelection(lastObj)
         lastObj.Visibility=True
+        Gui.Selection.addSelection(lastObj)
         Gui.Selection.clearSelection()
         Gui.activeDocument().activeView().viewIsometric()
         Gui.SendMsgToActiveView("ViewFit")
+
+    '''
+    Part: Tile
+    '''
     def doTile(self):
-        _tile.createOrGetDoc(docName)
+        self.createOrGetDoc(docName)
+        self.createPart(tileName)
+
         # Create Body and tile object
-        _tile.createBody_Tile(tileName)
+        self.createObject_Tile()
         # Object: Mount Hole
-        (pocket, sketchObj) =  _tile.createObject_MountHole()
+        (pocket, sketchObj) = self.createObject_MountHole()
         # Object: Mount Hole Array
-        lastObj = _tile.createObject_MountHoleArray(pocket, sketchObj)
+        lastObj = self.createObject_MountHoleArray(pocket, sketchObj)
 
         # V E R T I C A L
         thw=tileWidth/2
         thl=tileLength/2
         # Object: Vert, East facing slot
-        (pocket, sketchObj) = _tile.createObject_Slot(lastObj,-thw,-thl+10,'E')
+        (pocket, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', False)
         # Object: Vert Slot and Polar Array
-        lastObj = _tile.createObject_SlotArray(pocket, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArrayPolar(pocket, sketchObj,'E')
         # Object: Vert Slot Connector
-        (connectorArray, sketchObj) = _tile.createObject_Connector(lastObj, 'E')
+        (connectorArray, sketchObj) = self.createObject_Connector(lastObj, 'E', False)
         # Object: Vert Latch
-        (latchArray, sketchObj) = _tile.createObject_Latch(connectorArray, 'E')
+        (latchArray, sketchObj) = self.createObject_Latch(connectorArray, 'E')
         # Object: Vert Slot Connector and Latch Polar Array
-        lastObj = _tile.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
-
+        lastObj = self.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
+ 
         # H O R I Z O N T A L
         # Object: Horz, South facing Slot
-        (pocket, sketchObj) = _tile.createObject_Slot(lastObj,-thw+10,-thl,'S')
+        (pocket, sketchObj) = self.createObject_SlotKey(lastObj,-thw+10,-thl,'S', False)
         # Object: Horz Slot and Polar Array
-        lastObj = _tile.createObject_SlotArray(pocket, sketchObj,'S')
+        lastObj = self.createObject_SlotKeyArrayPolar(pocket, sketchObj,'S')
         # Object: Horz Slot Connector
-        (connectorArray, sketchObj) = _tile.createObject_Connector(lastObj, 'S')
+        (connectorArray, sketchObj) = self.createObject_Connector(lastObj, 'S', False)
         # Object: Horz Latch
-        (latchArray, sketchObj) = _tile.createObject_Latch(connectorArray, 'S')
+        (latchArray, sketchObj) = self.createObject_Latch(connectorArray, 'S')
         # Object: Vert Slot Connector and Latch Polar Array
-        lastObj = _tile.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
-        
+        lastObj = self.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
+ 
         # REFRESH SCREEN!
-        _tile.refreshScreen(lastObj)
+        self.refreshScreen(lastObj)
+
+    '''
+    Part: Connector
+    '''
+    def doConnector(self):
+        thw=tileWidth/2
+        thl=tileLength/2
+
+        self.createOrGetDoc(docName)
+        partName = self.createPart("connector")
+        # Reset LCS
+        self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
+
+        lastObj=None
+        # Side 1
+        # Object: Key Connector
+        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
+        lastObj=connector
+        # Object: Key
+        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
+        lastObj=pad
+        # Object: Key Array
+        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+
+        # Side 2
+        # Object: Key Connector
+        (connector, sketchObj) = self.createObject_Connector(lastObj, 'W', True)
+        lastObj=connector
+        # Object: Key
+        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'W', True)
+        lastObj=pad
+        # Object: Key Array
+        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'W')
+
+        # REFRESH SCREEN!
+        self.refreshScreen(lastObj)
+
+    '''
+    Part: Bracket
+    '''
+    def doBracket(self):
+        thw=tileWidth/2
+        thl=tileLength/2
+
+        self.createOrGetDoc(docName)
+        partName = self.createPart("bracket")
+        # Reset LCS
+        self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
+
+        lastObj=None
+        # Side 1
+        # Object: Key Connector
+        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
+        lastObj=connector
+        # Object: Key
+        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
+        lastObj=pad
+        # Object: Key Array
+        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+
+        (lastObj, sketchObj) = self.createObject_BracketBacker(lastObj, 'E')
+        # Side 2
+#         # Object: Key Connector
+#         (connector, sketchObj) = self.createObject_Connector(lastObj, 'U', True)
+#         lastObj=connector
+        # Object: Key
+        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw+15, 4, 'U', True)
+#         sketchObj.Placement.Base=App.Vector(15,9,-24)
+        sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-24),App.Rotation(App.Vector(0,0,1),0))
+        # Object: Key Array
+        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'U')
+ 
+        # REFRESH SCREEN!
+        self.refreshScreen(lastObj)
+
+
+    '''
+    Part: Hinge
+    '''
+    def doHinge(self):
+        thw=tileWidth/2
+        thl=tileLength/2
+
+        self.createOrGetDoc(docName)
+        partName = self.createPart("hinge")
+        # Reset LCS
+        self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
+
+        lastObj=None
+        # Side 1
+        # Object: Key Connector
+        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
+        lastObj=connector
+        # Object: Key
+        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
+        lastObj=pad
+        # Object: Key Array
+        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+
+        # REFRESH SCREEN!
+        self.refreshScreen(lastObj)
 
 ### END OF CLASS tile ###
 
@@ -502,6 +733,7 @@ class tile:
 
 #X TODO: Finish basic implementation
 #X TODO: Add lcs to tile for assembly
+
 ## TODO: Add fillet to slot corners
 ## TODO: Add lcs to bracket, hinge and connector for assembly
 ## TODO: Query user for dimensions
@@ -511,4 +743,6 @@ class tile:
 _tile = tile()
 # Model a tile
 _tile.doTile()
-
+_tile.doConnector()
+_tile.doBracket()
+_tile.doHinge()
