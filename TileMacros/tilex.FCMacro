@@ -1,4 +1,0 @@
-from PySide import QtGui
-
-FreeCAD.Console.PrintMessage("eliT")
-dg = QtGui.QInputDialog.getText(None,"Dimension","Width")
