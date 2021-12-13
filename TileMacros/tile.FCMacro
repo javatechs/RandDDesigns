@@ -59,7 +59,7 @@ class tile:
         self.theParts = None
         self.partBody = None
         self.lcs = None
-        self.extendedEdge = True
+        self.extendedEdge = False
     '''
     FreeCAD organizes models in files called documents.
     If an active document exists, select that for use
@@ -92,14 +92,14 @@ class tile:
     ''' 
     Create a Part and Body object for model container
     ''' 
-    def createPart(self, partName):
-        newTile = App.activeDocument().addObject('App::Part',partName)
+    def createPart(self, name):
+        newTile = App.activeDocument().addObject('App::Part',name)
         # Get the name of the new tile.
         # If Part named Tile already exists, append counting number.
-        partName = newTile.Label
+        name = newTile.Label
         App.activeDocument().Tip = newTile
         # Get tile object
-        tileObj = self.docObj.getObject(partName)
+        tileObj = self.docObj.getObject(name)
 
         # Select Parts, if we have an assembly
         if self.theParts is not None:
@@ -112,28 +112,30 @@ class tile:
         Gui.ActiveDocument.ActiveView.setActiveObject('part', tileObj)
 
         # Add LCS object
-        self.lcs = tileObj.newObject('PartDesign::CoordinateSystem','LCS_'+partName)
+        self.lcs = tileObj.newObject('PartDesign::CoordinateSystem','LCS_'+name)
         self.lcs.MapMode = 'ObjectXY'
         self.lcs.Support = newTile.Origin.OriginFeatures[0]
 
         # Create  a body for this part
         Gui.ActiveDocument.ActiveView.setActiveObject('part', tileObj)
-        self.partBody = App.activeDocument().addObject('PartDesign::Body','Body')
+        self.partBody = App.activeDocument().addObject('PartDesign::Body',name+'_body')
 
-        # Move Body to Part name TileXXX
+        # Move '<name>_body' to Part '<name>'
         tileObj.addObject(self.partBody)
         Gui.Selection.addSelection(self.partBody)
         # Actual name assigned by FC
-        return partName
+        return name
 
     ''' 
     Create a basic tile as a body object container
     ''' 
-    def createObject_Tile(self):
+    def createObject_Tile(self, name):
         # Create tile sketch
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "Sketch")
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
         self.partBody.addObject(sketchObj)
         sketchObj.MapMode='FlatFace'
+        sketchObj.Visibility = False
+
         # OriginFeatures[3] is the xy plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[3]
 
@@ -154,6 +156,7 @@ class tile:
         sketchObj.addGeometry(geoList,False)
 
         conList = []
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
         conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
         conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
         conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
@@ -170,10 +173,8 @@ class tile:
         conList.append(Sketcher.Constraint('Horizontal',0))
         conList.append(Sketcher.Constraint('Vertical',1))
         sketchObj.addConstraint(conList)
-        # Make invisible
-        sketchObj.Visibility=False
 
-        padObj = self.partBody.newObject('PartDesign::Pad','basic tile')
+        padObj = self.partBody.newObject('PartDesign::Pad',name+'_obj')
         padObj.Profile = sketchObj
         padObj.Length = 4.0
 
@@ -185,13 +186,13 @@ class tile:
     Diameter is controlled by insertDia.
     Hole is centered 10mm from 2 intersecting edges perpendicular from the plane.
     '''
-    def createObject_MountHole(self):
+    def createObject_MountHole(self, name):
         # Hole Sketch
         thw=tileWidth/2
         thl=tileLength/2
 
         #sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "Sketch")
-        sketchObj = self.docObj.addObject("Sketcher::SketchObject", "Sketch")
+        sketchObj = self.docObj.addObject("Sketcher::SketchObject", name+"_skt")
         self.partBody.addObject(sketchObj)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[3] is the xy plane
@@ -207,7 +208,7 @@ class tile:
         sketchObj.addConstraint(Sketcher.Constraint('DistanceX', -1, 1, g1, 3, -(thw-10)))
         sketchObj.addConstraint(Sketcher.Constraint('DistanceY', -1, 1, g1, 3, thl-10))
         # Pocket
-        pocket = self.partBody.newObject('PartDesign::Pocket','mount hole')
+        pocket = self.partBody.newObject('PartDesign::Pocket', name+'_obj')
         pocket.Profile = sketchObj
         # 3.5 + (thruMountHole ? 0 : 1)
         len = 3.5
@@ -222,10 +223,10 @@ class tile:
     '''
     Create a 2D array of Mount Hole objects.
     '''
-    def createObject_MountHoleArray(self, pocket, sketchObj):
-        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','hole array')
+    def createObject_MountHoleArray(self, name, pocket, sketchObj):
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform',name)
         multiTransform.Originals = [pocket,]
-        holePatV = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
+        holePatV = self.partBody.newObject('PartDesign::LinearPattern', name+'_vert_pattern')
         holePatV.Direction = (sketchObj,['V_Axis'])
         # tileLength - 20 < 1 ? 1 : tileLength - 20
         len = tileLength - 20
@@ -235,7 +236,7 @@ class tile:
         holePatV.Occurrences = unitLength - 1
         holePatV.Reversed = 1
 
-        holePatH = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
+        holePatH = self.partBody.newObject('PartDesign::LinearPattern',name+'_horz_pattern')
         holePatH.Direction = (sketchObj,['H_Axis'])
         # tileWidth - 20 < 1 ? 1 : tileWidth - 20
         len = tileWidth - 20
@@ -258,20 +259,18 @@ class tile:
 
     >           = Points to x,y midpoint. 
                   Example diagram opens 'E'ast orientation 
-    x           = horz midpt small end
-    y           = vert midpt small end
+    x           = horz mid pt small end
+    y           = vert mid pt small end
     orient      = 'N'orth, 'S'outh, 'E'ast, 'W'est
     '''
 
-    def createObject_SlotKey(self, afterObj, xorg, yorg, orient, key):
+    def createObject_SlotKey(self, name, afterObj, xorg, yorg, orient, key):
         ## Create new sketch
-        dir = "horz"
-        if orient=='E':
-            dir = "vert"
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir + " slot sketch")
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
         self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         sketchObj.Visibility=False
+
         # OriginFeatures[3] is the XY plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[3]
 
@@ -293,6 +292,7 @@ class tile:
         # Create line segments
         # p4 <- p3
         # p1 -> p2 /\
+        # TODO Is key/slot being drawn in the same order no matter orientation?
         if orient=='E':
             p1=App.Vector(xorg      , yorg-narrow, 0.0)
             p2=App.Vector(xorg      , yorg+narrow, 0.0)
@@ -314,6 +314,35 @@ class tile:
         geoList.append(Part.LineSegment(p3,p4))
         geoList.append(Part.LineSegment(p4,p1))
         sketchObj.addGeometry(geoList,False)
+
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
+        # 
+        if orient == 'E':
+            conList.append(Sketcher.Constraint('DistanceX',0,1,2,2,depth))
+        elif orient == 'W':
+            conList.append(Sketcher.Constraint('DistanceX',1,2,0,2,depth)) 
+
+        if orient in ('E','W'):
+            conList.append(Sketcher.Constraint('Vertical',0))
+            conList.append(Sketcher.Constraint('Vertical',2))
+            conList.append(Sketcher.Constraint('DistanceY',0,1,0,2,narrow*2))
+            conList.append(Sketcher.Constraint('DistanceY',2,2,2,1,wide*2))
+            conList.append(Sketcher.Constraint('DistanceY',0,2,1,2,wide-narrow)) 
+        else:
+            conList.append(Sketcher.Constraint('Horizontal',0))
+            conList.append(Sketcher.Constraint('Horizontal',2))
+            conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,narrow*2))
+            conList.append(Sketcher.Constraint('DistanceX',2,2,2,1,wide*2))
+            conList.append(Sketcher.Constraint('DistanceX',0,2,1,2,wide-narrow)) 
+            conList.append(Sketcher.Constraint('DistanceY',0,1,2,2,depth))
+        sketchObj.addConstraint(conList)
         '''
         # Fillet. See:
         # https://freecad.github.io/SourceDoc/d9/dad/classSketcher_1_1SketchObject.html#a43c1d2127f6883712935706a98e1cf4a
@@ -323,12 +352,12 @@ class tile:
         # If key
         if key:
             # Key
-            pocket = self.partBody.newObject('PartDesign::Pad',dir+' key')
+            pocket = self.partBody.newObject('PartDesign::Pad',name+'_obj')
             len = 3.5
             pocket.Reversed = 0
         else:
             # Slot
-            pocket = self.partBody.newObject('PartDesign::Pocket',dir+' slot')
+            pocket = self.partBody.newObject('PartDesign::Pocket',name+' obj')
             len = 3.5
             pocket.Reversed = 1
         pocket.Profile = sketchObj
@@ -340,11 +369,17 @@ class tile:
 
     '''
     Using the slot object, create a linear array.
+    Parameters:
+    name:            Name of sketch/object
+    inputObject:     Object to be 'arrayed'. 
+                     Also serves as last object
+    sketchObject:    Used for object orientation
+    orient           One of 'S', 'U' or other.
     '''
-    def createObject_SlotKeyArray(self, inputObject, sketchObj, orient):
-        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','slot array')
+    def createObject_SlotKeyArray(self, name, inputObject, sketchObj, orient):
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform', name)
         multiTransform.Originals = [inputObject,]
-        holePatV = self.partBody.newObject('PartDesign::LinearPattern','LinearPattern')
+        holePatV = self.partBody.newObject('PartDesign::LinearPattern', name+'_LinearPattern')
 
         holePatV.Direction = (sketchObj,['V_Axis'])
         dim = tileLength
@@ -373,10 +408,10 @@ class tile:
     '''
     Using the input slot or key object, create a linear and then polar array.
     '''
-    def createObject_SlotKeyArrayPolar(self, inputObject, sketchObj, orient):
-        multiTransform = self.createObject_SlotKeyArray(inputObject, sketchObj, orient)
+    def createObject_SlotKeyArrayPolar(self, name, inputObject, sketchObj, orient):
+        multiTransform = self.createObject_SlotKeyArray(name, inputObject, sketchObj, orient)
 
-        polar = self.partBody.newObject('PartDesign::PolarPattern','PolarPattern001')
+        polar = self.partBody.newObject('PartDesign::PolarPattern',name+'_PolarPattern')
         polar.Axis = (sketchObj,['N_Axis'])
         polar.Angle = 360
         polar.Occurrences = 2
@@ -391,9 +426,10 @@ class tile:
     '''
     Connector tunnel
     '''
-    def createObject_Connector(self, afterObj, orient, key):
+    def createObject_Connector(self, name, afterObj, orient, key):
+
         ## Create new sketch
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "connector sketch")
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
         self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
@@ -405,8 +441,6 @@ class tile:
             sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
             len = tileWidth
             wid = tileLength
-        elif orient == 'W':
-            pass
         sketchObj.Visibility=False
 
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
@@ -428,11 +462,27 @@ class tile:
         geoList.append(Part.LineSegment(p4,p1))
         sketchObj.addGeometry(geoList,False)
 
-        # Pad(key=True) or Pocket(slot)
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
+#         conList.append(Sketcher.Constraint('DistanceX',1,1,1,2,2.000000))
+#         conList.append(Sketcher.Constraint('DistanceY',2,2,2,1,2.000000))
+        conList.append(Sketcher.Constraint('Vertical',0))
+        conList.append(Sketcher.Constraint('Horizontal',1))
+        conList.append(Sketcher.Constraint('Vertical',2))
+        conList.append(Sketcher.Constraint('Horizontal',3))
+        sketchObj.addConstraint(conList)
+
+        ## Pad(key=True) or Pocket(slot)
         if key:
-            pocket = self.partBody.newObject('PartDesign::Pad','connector')
+            pocket = self.partBody.newObject('PartDesign::Pad', name+'_obj')
         else:
-            pocket = self.partBody.newObject('PartDesign::Pocket','connector')
+            pocket = self.partBody.newObject('PartDesign::Pocket', name+'_obj')
         pocket.Profile = sketchObj
 
         pocket.Length = len - 18
@@ -446,12 +496,9 @@ class tile:
     '''
     Latch 
     '''
-    def createObject_Latch(self, afterObj, orient):
-        dir = "horz"
-        if orient=='E':
-            dir = "vert"
+    def createObject_Latch(self, name, afterObj, orient):
         ## Create new sketch
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir+" latch sketch")
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name + "_skt")
         self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
@@ -468,26 +515,43 @@ class tile:
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
         geoList = []
         # Create line segments
-        # Height = 0.5 to 0.8 mm
-        # Width = 0.6 mm
         # Length = tileLength - 12
-        
         # Describe a 4 sided object with vertices a,b,c,d
         # d <- c
         # a -> b /\
-        x= wid/2 - slotDepth # Start for x
-        p1=App.Vector(x    , 0.0, 0.0)
-        p2=App.Vector(x+0.6, 0.0, 0.0)
-        p3=App.Vector(x+0.6, 0.5, 0.0)
-        p4=App.Vector(x    , 0.8, 0.0)
+        xwid = 0.6              # Width = 0.6 mm
+        y1 = 0.5                # Height = 0.5 mm or
+        y2 = 0.8                # Height = 0.8 mm
+        xorg = wid/2 - slotDepth    # Start for x
+        p1=App.Vector(xorg     , 0.0, 0.0)
+        p2=App.Vector(xorg+xwid, 0.0, 0.0)
+        p3=App.Vector(xorg+xwid,  y1, 0.0)
+        p4=App.Vector(xorg     ,  y2, 0.0)
         geoList.append(Part.LineSegment(p1,p2))
         geoList.append(Part.LineSegment(p2,p3))
         geoList.append(Part.LineSegment(p3,p4))
         geoList.append(Part.LineSegment(p4,p1))
         sketchObj.addGeometry(geoList,False)
 
-        # Pad
-        newObj = self.partBody.newObject('PartDesign::Pad', dir+' latch')
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
+        conList.append(Sketcher.Constraint('Horizontal',0))
+        conList.append(Sketcher.Constraint('Vertical',1))
+        conList.append(Sketcher.Constraint('Vertical',3))
+        conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,xwid))
+        conList.append(Sketcher.Constraint('DistanceY',1,1,1,2,y1))
+        conList.append(Sketcher.Constraint('DistanceY',3,2,3,1,y2))
+
+        sketchObj.addConstraint(conList)
+
+        # Latch object (Pad)
+        newObj = self.partBody.newObject('PartDesign::Pad', name+'_obj')
         newObj.Profile = sketchObj
 
         newObj.Length = len - 12
@@ -500,13 +564,81 @@ class tile:
         return newObj, sketchObj
 
     '''
+    Latch notch, accepts the latch and locks.
+    '''
+    def createObject_LatchNotch(self, name, afterObj, orient):
+        ## Create new sketch
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name + "_skt")
+        self.partBody.insertObject(sketchObj, afterObj, True)
+        sketchObj.MapMode='FlatFace'
+        # OriginFeatures[4] is the XZ plane
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
+        sketchObj.Visibility=False
+        len = tileLength
+        wid = tileWidth
+
+        # Snip shape
+        xwid = 0.7
+        xorg = -wid/2+5
+        y1=0.9
+        y2=0.55
+        if orient == 'W':
+            xorg = -wid/2-5
+            xwid = -0.7
+        p1=App.Vector(xorg     , y1 ,0)
+        p2=App.Vector(xorg-xwid, y2,0)
+        p3=App.Vector(xorg-xwid, 0.0 ,0)
+        p4=App.Vector(xorg     , 0.0 ,0)
+        if orient == 'U':
+            xorg = xorg-9
+            p1=App.Vector(xorg+y1, 10,0)
+            p2=App.Vector(xorg+y2,  8,0)
+            p3=App.Vector(xorg   ,  8,0)
+            p4=App.Vector(xorg   , 10,0)
+        geoList = []
+        geoList.append(Part.LineSegment(p1,p2))
+        geoList.append(Part.LineSegment(p2,p3))
+        geoList.append(Part.LineSegment(p3,p4))
+        geoList.append(Part.LineSegment(p4,p1))
+        sketchObj.addGeometry(geoList,False)
+
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
+        if orient != 'U':
+            conList.append(Sketcher.Constraint('Vertical',1))
+            conList.append(Sketcher.Constraint('Horizontal',2))
+            conList.append(Sketcher.Constraint('Vertical',3))
+            conList.append(Sketcher.Constraint('DistanceY',1,2,1,1,y2))
+            conList.append(Sketcher.Constraint('DistanceX',2,1,2,2,xwid))
+            conList.append(Sketcher.Constraint('DistanceY',3,1,3,2,y1))
+        sketchObj.addConstraint(conList)
+
+        # Notch (pocket)
+        newObj = self.partBody.newObject('PartDesign::Pocket', name+'_obj')
+        newObj.Profile = sketchObj
+
+        newObj.Length = len
+        newObj.Reversed = 0
+        newObj.Midplane = 1
+        newObj.Visibility=False
+        # Insert in the correct place
+        self.partBody.removeObject(newObj)
+        self.partBody.insertObject(newObj, afterObj, True)
+        return newObj, sketchObj
+    '''
     Create connector latch then a polar array from the connector.
     '''
-    def createObject_ConnectorLatchArray(self, afterObj, sketchObj, connectorArray, latchArray):
-        multiTransform = self.partBody.newObject('PartDesign::MultiTransform','connector latch array')
+    def createObject_ConnectorLatchArray(self, name, afterObj, sketchObj, connectorArray, latchArray):
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform', name)
         multiTransform.Originals = [connectorArray, latchArray,]
 
-        polar = self.partBody.newObject('PartDesign::PolarPattern','PolarPattern001')
+        polar = self.partBody.newObject('PartDesign::PolarPattern',name+'_PolarPattern')
         polar.Axis = (sketchObj,['V_Axis'])
         polar.Angle = 360
         polar.Occurrences = 2
@@ -524,10 +656,8 @@ class tile:
     '''
     Bracket supports the 90deg   
     '''
-    def createObject_BracketBacker(self, afterObj, orient):
-        
-#         sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", dir+" latch sketch")
-        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "bracket backer sketch")
+    def createObject_BracketBacker(self, name, afterObj, orient):
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
         self.partBody.insertObject(sketchObj, afterObj, True)
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
@@ -555,7 +685,37 @@ class tile:
         sketchObj.addGeometry(geoList,False)
         sketchObj.Visibility = False
 
-        pad = self.partBody.newObject('PartDesign::Pad','bracket backer')
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,4,1))
+        conList.append(Sketcher.Constraint('Coincident',4,2,5,1))
+        conList.append(Sketcher.Constraint('Coincident',5,2,6,1))
+        conList.append(Sketcher.Constraint('Coincident',6,2,7,1))
+        conList.append(Sketcher.Constraint('Coincident',7,2,0,1))
+        #
+        conList.append(Sketcher.Constraint('DistanceX',6,2,6,1,10.500000))
+        conList.append(Sketcher.Constraint('DistanceY',7,1,7,2,10.500000))
+        conList.append(Sketcher.Constraint('DistanceX',2,1,2,2,4.000000))
+        conList.append(Sketcher.Constraint('DistanceY',3,2,3,1,4.000000)) 
+        conList.append(Sketcher.Constraint('DistanceY',1,2,1,1,5.500000))
+        conList.append(Sketcher.Constraint('DistanceX',4,1,4,2,5.500000))
+        #
+        conList.append(Sketcher.Constraint('Horizontal',0))
+        conList.append(Sketcher.Constraint('Vertical',1))
+        conList.append(Sketcher.Constraint('Horizontal',2))
+        conList.append(Sketcher.Constraint('Vertical',3))
+        conList.append(Sketcher.Constraint('Horizontal',4))
+        conList.append(Sketcher.Constraint('Vertical',5))
+        conList.append(Sketcher.Constraint('Horizontal',6))
+        conList.append(Sketcher.Constraint('Vertical',7))
+        sketchObj.addConstraint(conList)
+        #
+        pad = self.partBody.newObject('PartDesign::Pad', name+'_obj')
         pad.Profile = sketchObj
 
 
@@ -569,6 +729,162 @@ class tile:
         self.partBody.removeObject(pad)
         self.partBody.insertObject(pad, afterObj, True)
         return pad, sketchObj
+
+    '''
+    Hinge body. Accepts pin.
+    Contains pivot point.
+    '''
+    def createObject_HingeBody(self, name, afterObj, orient):
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
+        self.partBody.insertObject(sketchObj, afterObj, True)
+        sketchObj.MapMode='FlatFace'
+        sketchObj.Visibility = False
+
+        # OriginFeatures[4] is the XZ plane
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
+        len = tileLength
+        wid = tileWidth
+        geoList = []
+        # A drawing in 8 points!
+        p1=App.Vector(-wid/2-4  , 4.0,0)
+        p2=App.Vector(-wid/2    , 4.0,0)
+        p3=App.Vector(-wid/2    , 0.0,0)
+        p4=App.Vector(-wid/2+5  , 0.0,0)
+        p5=App.Vector(-wid/2+5  ,-1.0,0)
+        p6=App.Vector(-wid/2-4  ,-1.0,0)
+
+        geoList.append(Part.LineSegment(p1,p2))
+        geoList.append(Part.LineSegment(p2,p3))
+        geoList.append(Part.LineSegment(p3,p4))
+        geoList.append(Part.LineSegment(p4,p5))
+        geoList.append(Part.LineSegment(p5,p6))
+        geoList.append(Part.LineSegment(p6,p1))
+        sketchObj.addGeometry(geoList,False)
+
+        conList = []
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,4,1))
+        conList.append(Sketcher.Constraint('Coincident',4,2,5,1))
+        conList.append(Sketcher.Constraint('Coincident',5,2,0,1))
+        conList.append(Sketcher.Constraint('DistanceX',1,2,-1,1,wid/2))
+        conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,4.000000))
+        conList.append(Sketcher.Constraint('DistanceX',4,2,4,1,9.000000))
+        conList.append(Sketcher.Constraint('DistanceY',1,2,1,1,4.000000))
+        conList.append(Sketcher.Constraint('DistanceY',5,1,5,2,5.000000))
+        conList.append(Sketcher.Constraint('DistanceY',-1,1,2,2,0.000000))
+        conList.append(Sketcher.Constraint('Horizontal',0))
+        conList.append(Sketcher.Constraint('Horizontal',2))
+        conList.append(Sketcher.Constraint('Horizontal',4))
+        conList.append(Sketcher.Constraint('Vertical',1))
+        conList.append(Sketcher.Constraint('Vertical',3))
+        conList.append(Sketcher.Constraint('Vertical',5))
+        sketchObj.addConstraint(conList)
+
+        # Add hinge pin hole
+        radius=1.92/2
+        Xvar=-wid/2-2
+        Yvar=2
+        sketchObj.addGeometry(Part.Circle(App.Vector(Xvar,Yvar,0),App.Vector(0,0,1),radius),False)
+        sketchObj.addConstraint(Sketcher.Constraint('DistanceY',6,3,0,2,2.000000))
+        sketchObj.addConstraint(Sketcher.Constraint('DistanceX',6,3,0,2,2.000000))
+        sketchObj.addConstraint(Sketcher.Constraint('Radius',6,radius))
+
+        # 
+        # TODO Compute X & Y vector values
+        sketchObj.fillet(3,4,App.Vector(-15.0,-0.5,0),App.Vector(-16.0,-1.0,0),0.5,True,True)
+        sketchObj.addConstraint(Sketcher.Constraint('Radius',7,0.500000))
+        sketchObj.fillet(4,5,App.Vector(-23.5,-1.0,0),App.Vector(-24.0,-0.5,0),0.5,True,True)
+        sketchObj.addConstraint(Sketcher.Constraint('Radius',9,0.500000))
+        sketchObj.fillet(5,0,App.Vector(-24.0,3,0),App.Vector(-23.5,4,0),2.0,True,True)
+        sketchObj.addConstraint(Sketcher.Constraint('Radius',11,2.0))
+
+        # Object
+        pad = self.partBody.newObject('PartDesign::Pad',name+'_obj')
+        pad.Profile = sketchObj
+
+        # len = tileWidth - (extendedEdge==True? 0.2 : 10)
+        if self.extendedEdge:
+            len -=0.2
+        else:
+            len -=10
+        pad.Length = len
+        pad.Midplane = 1
+        pad.Visibility = True
+        self.partBody.removeObject(pad)
+        self.partBody.insertObject(pad, afterObj, True)
+        return pad, sketchObj
+
+    '''
+    Hinge mating cut and array
+    '''
+    def createObject_HingeMateCut(self, name, afterObj, orient):
+        sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", name+"_skt")
+        self.partBody.insertObject(sketchObj, afterObj, True)
+        sketchObj.MapMode='FlatFace'
+        sketchObj.Visibility = False
+
+        # OriginFeatures[4] is the XZ plane
+        sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
+        len = tileLength
+        wid = tileWidth
+        geoList = []
+
+        # Snip shape
+        p1=App.Vector(-wid/2-4  , 4.0,0)
+        p2=App.Vector(-wid/2    , 4.0,0)
+        p3=App.Vector(-wid/2    ,-1.0,0)
+        p4=App.Vector(-wid/2-4  ,-1.0,0)
+
+        geoList.append(Part.LineSegment(p1,p2))
+        geoList.append(Part.LineSegment(p2,p3))
+        geoList.append(Part.LineSegment(p3,p4))
+        geoList.append(Part.LineSegment(p4,p1))
+        sketchObj.addGeometry(geoList,False)
+
+        # Constraints
+        conList = []
+
+        #Sketcher.Constraint('Coincident',LineFixed,PointOfLineFixed,LineMoving,PointOfLineMoving)
+        conList.append(Sketcher.Constraint('Coincident',0,2,1,1))
+        conList.append(Sketcher.Constraint('Coincident',1,2,2,1))
+        conList.append(Sketcher.Constraint('Coincident',2,2,3,1))
+        conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
+        conList.append(Sketcher.Constraint('Horizontal',0))
+        conList.append(Sketcher.Constraint('Vertical',1)) 
+        conList.append(Sketcher.Constraint('Horizontal',2))
+        conList.append(Sketcher.Constraint('Vertical',3))
+        conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,4.000000))
+        conList.append(Sketcher.Constraint('DistanceY',3,1,3,2,5.000000)) 
+        sketchObj.addConstraint(conList)
+
+        # Object
+        newObj = self.partBody.newObject('PartDesign::Pocket',name+'_obj')
+        newObj.Profile = sketchObj
+        # TODO Save cut
+        newObj.Length = 5.30
+        newObj.Midplane = 0
+        newObj.Visibility = False
+        self.partBody.removeObject(newObj)
+        self.partBody.insertObject(newObj, afterObj, True)
+
+        # Array
+        multiTransform = self.partBody.newObject('PartDesign::MultiTransform', name+'_array')
+        multiTransform.Originals = [newObj,]
+        holePatV = self.partBody.newObject('PartDesign::LinearPattern',name+'_LinearPattern')
+        holePatV.Direction = (sketchObj,['N_Axis'])
+        holePatV.Length = tileWidth-10
+        holePatV.Occurrences = unitWidth
+        holePatV.Reversed = 0
+
+        multiTransform.Transformations = [holePatV]
+        self.partBody.removeObject(multiTransform)
+        self.partBody.insertObject(multiTransform, newObj, True)
+        
+        return multiTransform, sketchObj
+
     '''
     Latch 
     '''
@@ -589,37 +905,37 @@ class tile:
         self.createPart(tileName)
 
         # Create Body and tile object
-        self.createObject_Tile()
+        self.createObject_Tile('tile_base')
         # Object: Mount Hole
-        (pocket, sketchObj) = self.createObject_MountHole()
+        (pocket, sketchObj) = self.createObject_MountHole("tile_mount_hole")
         # Object: Mount Hole Array
-        lastObj = self.createObject_MountHoleArray(pocket, sketchObj)
+        lastObj = self.createObject_MountHoleArray('tile_mount_array', pocket, sketchObj)
 
         # V E R T I C A L
         thw=tileWidth/2
         thl=tileLength/2
         # Object: Vert, East facing slot
-        (pocket, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', False)
+        (pocket, sketchObj) = self.createObject_SlotKey("tile_vert_slot", lastObj,-thw,-thl+10,'E', False)
         # Object: Vert Slot and Polar Array
-        lastObj = self.createObject_SlotKeyArrayPolar(pocket, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArrayPolar('tile_vert_slot_array', pocket, sketchObj,'E')
         # Object: Vert Slot Connector
-        (connectorArray, sketchObj) = self.createObject_Connector(lastObj, 'E', False)
+        (connectorArray, sketchObj) = self.createObject_Connector('tile_vspine_slot', lastObj, 'E', False)
         # Object: Vert Latch
-        (latchArray, sketchObj) = self.createObject_Latch(connectorArray, 'E')
+        (latchArray, sketchObj) = self.createObject_Latch('tile_vert_latch', connectorArray, 'E')
         # Object: Vert Slot Connector and Latch Polar Array
-        lastObj = self.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
+        lastObj = self.createObject_ConnectorLatchArray('tile_vert_latch array', latchArray, sketchObj, connectorArray, latchArray)
  
         # H O R I Z O N T A L
         # Object: Horz, South facing Slot
-        (pocket, sketchObj) = self.createObject_SlotKey(lastObj,-thw+10,-thl,'S', False)
+        (pocket, sketchObj) = self.createObject_SlotKey("tile_horz_slot", lastObj,-thw+10,-thl,'S', False)
         # Object: Horz Slot and Polar Array
-        lastObj = self.createObject_SlotKeyArrayPolar(pocket, sketchObj,'S')
+        lastObj = self.createObject_SlotKeyArrayPolar('tile_horz_slot_array', pocket, sketchObj,'S')
         # Object: Horz Slot Connector
-        (connectorArray, sketchObj) = self.createObject_Connector(lastObj, 'S', False)
+        (connectorArray, sketchObj) = self.createObject_Connector('tile_hspine_slot', lastObj, 'S', False)
         # Object: Horz Latch
-        (latchArray, sketchObj) = self.createObject_Latch(connectorArray, 'S')
+        (latchArray, sketchObj) = self.createObject_Latch('tile_horz_latch', connectorArray, 'S')
         # Object: Vert Slot Connector and Latch Polar Array
-        lastObj = self.createObject_ConnectorLatchArray(latchArray, sketchObj, connectorArray, latchArray)
+        lastObj = self.createObject_ConnectorLatchArray('tile_horz_latch_array', latchArray, sketchObj, connectorArray, latchArray)
  
         # REFRESH SCREEN!
         self.refreshScreen(lastObj)
@@ -638,24 +954,24 @@ class tile:
 
         lastObj=None
         # Side 1
-        # Object: Key Connector
-        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
-        lastObj=connector
-        # Object: Key
-        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
-        lastObj=pad
-        # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+        # Obj: Key spine
+        (lastObj, sketchObj) = self.createObject_Connector('rspine', lastObj, 'E', True)
+        # Obj: Key
+        (lastObj, sketchObj) = self.createObject_SlotKey("rspine_key", lastObj,-thw,-thl+10,'E', True)
+        # Obj: Key Array
+        lastObj = self.createObject_SlotKeyArray('rspine_key_array', lastObj, sketchObj,'E')
+        # Obj: Latch Notch
+        (lastObj, sketchObj) = self.createObject_LatchNotch('rspine_latch_notch', lastObj, 'E')
 
         # Side 2
-        # Object: Key Connector
-        (connector, sketchObj) = self.createObject_Connector(lastObj, 'W', True)
-        lastObj=connector
-        # Object: Key
-        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'W', True)
-        lastObj=pad
-        # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'W')
+        # Obj: Key Connector
+        (lastObj, sketchObj) = self.createObject_Connector('lspine', lastObj, 'W', True)
+        # Obj: Key
+        (lastObj, sketchObj) = self.createObject_SlotKey("lspine_key", lastObj,-thw,-thl+10,'W', True)
+        # Obj: Key Array
+        lastObj = self.createObject_SlotKeyArray('lspine_key_array', lastObj, sketchObj,'W')
+        # Obj: Latch Notch
+        (lastObj, sketchObj) = self.createObject_LatchNotch('lspine_latch_notch', lastObj, 'W')
 
         # REFRESH SCREEN!
         self.refreshScreen(lastObj)
@@ -674,26 +990,31 @@ class tile:
 
         lastObj=None
         # Side 1
-        # Object: Key Connector
-        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
+        # Obj: Key Spine
+        (connector, sketchObj) = self.createObject_Connector('bracket_lwr_spine', lastObj, 'E', True)
         lastObj=connector
-        # Object: Key
-        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
+        # Obj: Key
+        (pad, sketchObj) = self.createObject_SlotKey("bracket_lwr_key", lastObj,-thw,-thl+10,'E', True)
         lastObj=pad
-        # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+        # Obj: Key Array
+        lastObj = self.createObject_SlotKeyArray('bracket_lwr_key_array', pad, sketchObj,'E')
+        # Obj: Latch Notch
+        (lastObj, sketchObj) = self.createObject_LatchNotch('bracket_lwr_latch_notch', lastObj, 'E')
 
-        (lastObj, sketchObj) = self.createObject_BracketBacker(lastObj, 'E')
+        (lastObj, sketchObj) = self.createObject_BracketBacker("bracket_backer", lastObj, 'E')
+
         # Side 2
-#         # Object: Key Connector
-#         (connector, sketchObj) = self.createObject_Connector(lastObj, 'U', True)
+#         # Obj: Key Connector
+#         (connector, sketchObj) = self.createObject_Connector('bracket_bk_spine', lastObj, 'U', True)
 #         lastObj=connector
-        # Object: Key
-        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw+15, 4, 'U', True)
+        # Obj: Key
+        (pad, sketchObj) = self.createObject_SlotKey("bracket_bk_key", lastObj,-thw+15, 4, 'U', True)
 #         sketchObj.Placement.Base=App.Vector(15,9,-24)
         sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-24),App.Rotation(App.Vector(0,0,1),0))
-        # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'U')
+        # Obj: Key Array
+        lastObj = self.createObject_SlotKeyArray('bracket_bk_key_array', pad, sketchObj,'U')
+        # Obj: Latch Notch
+        (lastObj, sketchObj) = self.createObject_LatchNotch('bracket_bk_latch_notch', lastObj, 'U')
  
         # REFRESH SCREEN!
         self.refreshScreen(lastObj)
@@ -712,16 +1033,20 @@ class tile:
         self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
 
         lastObj=None
-        # Side 1
-        # Object: Key Connector
-        (connector, sketchObj) = self.createObject_Connector(lastObj, 'E', True)
-        lastObj=connector
+        # Key & spine
+        # Object: Key Spine
+        (lastObj, sketchObj) = self.createObject_Connector('hinge_key_spine', lastObj, 'E', True)
         # Object: Key
-        (pad, sketchObj) = self.createObject_SlotKey(lastObj,-thw,-thl+10,'E', True)
-        lastObj=pad
+        (lastObj, sketchObj) = self.createObject_SlotKey("hinge_key", lastObj,-thw,-thl+10,'E', True)
         # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray(pad, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArray('hinge_key_array', lastObj, sketchObj,'E')
 
+        # Object: Hinge frame
+        (lastObj, sketchObj) = self.createObject_HingeBody('hinge_frame', lastObj, 'E')
+        # Obj: Mate cut (pocket) and array
+        (lastObj, sketchObj) = self.createObject_HingeMateCut('hinge_mate_cut', lastObj, 'E')
+        # Obj: Latch Notch
+        (lastObj, sketchObj) = self.createObject_LatchNotch('hinge_latch_notch', lastObj, 'E')
         # REFRESH SCREEN!
         self.refreshScreen(lastObj)
 
@@ -737,7 +1062,7 @@ class tile:
 ## TODO: Add fillet to slot corners
 ## TODO: Add lcs to bracket, hinge and connector for assembly
 ## TODO: Query user for dimensions
-## TODO: Add constraints?
+## TODO: Add constraints
 
 # Instantiate tile object
 _tile = tile()
@@ -745,4 +1070,4 @@ _tile = tile()
 _tile.doTile()
 _tile.doConnector()
 _tile.doBracket()
-_tile.doHinge()
+# _tile.doHinge()
