@@ -1,5 +1,5 @@
-__Name__ = 'Tile'
-__Comment__ = 'Creates a tile model in your doc if open.'
+__Name__ = 'Tile Generator Macro'
+__Comment__ = 'Creates a tile model parts in your doc, if open. Create new doc if necessary.'
 __Author__ = ''
 __Version__ = '0.0.1'
 __Date__ = '2021-12-06'
@@ -11,12 +11,13 @@ __Help__ = ''
 __Status__ = 'Alpha'
 __Requires__ = 'FreeCAD >= v0.19 with Assembly 4 Workbench Installed.'
 __Communication__ = ''
-__Files__ = ''
+__Files__ = 'tile.FCMacro'
 
 '''
-    Create Tile Macro
+    Tile Generator Macro
     Description:
-    Creates a tile with user entered dimensions and feature parameters.
+    Creates a tile connector, bracket or hinge with 
+    user entered dimensions and feature parameters.
 
     Approach:
     If no document, spreadsheet and assembly 
@@ -25,33 +26,175 @@ __Files__ = ''
 import FreeCAD as App
 import FreeCADGui as Gui
 
-from PySide import QtGui
+from PySide import QtCore, QtGui
 import Part
 import PartDesign
 import PartDesignGui
 import Sketcher
-#from shapely.geometry.polygon import orient
-
-# Make module accessible
-sys.path.append(os.path.dirname( __file__ ))
-#import tileHelper as th
-#ex = th.Example()
 
 # Local macro variables
 docName  = "Unnamed"
 tileName = "tile"
 
-# Defaults for user entered values
-unitWidth = 4
-unitLength = 3
-tileWidth = 10*unitWidth
-tileLength = 10*unitLength
 #
 slotDepth   = 5.0
 m3InsertDia = 4.85
 insertDia   = m3InsertDia
-thruMountHole = True
 
+class widget(QtGui.QWidget):
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key ==  QtCore.Qt.Key_Escape:
+            self.hide()
+        else:
+            super().keyPressEvent(event) 
+
+class Ui_Dialog(object):
+
+    def __init__(self):
+        self.d = None
+
+    def setupUi(self, Dialog):
+        Dialog.setObjectName("Dialog")
+        Dialog.resize(280, 300)
+        self.title = QtGui.QLabel(Dialog)
+        self.title.setGeometry(QtCore.QRect(10, 10, 271, 30))
+        self.title.setObjectName("title")
+        self.label_width = QtGui.QLabel(Dialog)
+        self.label_width.setGeometry(QtCore.QRect(30, 60, 57, 16))
+        self.label_width.setObjectName("label_width")
+        self.label_length = QtGui.QLabel(Dialog)
+        self.label_length.setGeometry(QtCore.QRect(30, 90, 57, 16))
+        self.label_length.setObjectName("label_length")
+        self.width = QtGui.QLineEdit(Dialog)
+        self.width.setGeometry(QtCore.QRect(100, 52, 60, 26))
+        self.width.setObjectName("width")
+        self.length = QtGui.QLineEdit(Dialog)
+        self.length.setGeometry(QtCore.QRect(100, 82, 60, 26))
+        self.length.setObjectName("length")
+        self.label_create = QtGui.QLabel(Dialog)
+        self.label_create.setGeometry(QtCore.QRect(30, 130, 80, 16))
+        self.label_create.setObjectName("label_create")
+        #
+        width=80
+        self.createTile = QtGui.QPushButton(Dialog)
+        self.createTile.setGeometry(QtCore.QRect(30, 150, width, 26))
+        self.createTile.setObjectName("create_tile")
+        self.createConnector = QtGui.QPushButton(Dialog)
+        self.createConnector.setGeometry(QtCore.QRect(30, 180, width, 26))
+        self.createConnector.setObjectName("create_connector")
+        self.createHinge = QtGui.QPushButton(Dialog)
+        self.createHinge.setGeometry(QtCore.QRect(120, 150, width, 26))
+        self.createHinge.setObjectName("create_hinge")
+        self.createBracket = QtGui.QPushButton(Dialog)
+        self.createBracket.setGeometry(QtCore.QRect(120, 180, width, 26))
+        self.createBracket.setObjectName("create_bracket")
+        self.cancel = QtGui.QPushButton(Dialog)
+        self.cancel.setGeometry(QtCore.QRect(30, 250, 160, 26))
+        self.cancel.setObjectName("cancel")
+
+        self.retranslateUi(Dialog)
+        QtCore.QObject.connect(self.createTile,QtCore.SIGNAL("pressed()"),self.createPartTile)
+        QtCore.QObject.connect(self.createConnector,QtCore.SIGNAL("pressed()"),self.createPartConnector)
+        QtCore.QObject.connect(self.createHinge,QtCore.SIGNAL("pressed()"),self.createPartHinge)
+        QtCore.QObject.connect(self.createBracket,QtCore.SIGNAL("pressed()"),self.createPartBracket)
+        QtCore.QObject.connect(self.cancel,QtCore.SIGNAL("pressed()"),self.d.hide)
+        QtCore.QMetaObject.connectSlotsByName(Dialog)
+
+    def retranslateUi(self, Dialog):
+        Dialog.setWindowTitle("Dialog")
+        self.title.setText("Tile Generator Macro\n(Use whole centimeters. Minimum of 2.)")
+#         self.title.setColor(QPalette.Window, Qt.white);
+        self.label_width.setText("Width")
+        self.label_length.setText("Length *")
+        self.label_create.setText("Create Part...")
+        self.createTile.setText("&Tile")
+        self.createConnector.setText("&Connector")
+        self.createHinge.setText("&Hinge")
+        self.createBracket.setText("&Bracket")
+        self.cancel.setText("Cancel")
+
+    def getValues(self, part):
+        self.getLenValue(part)
+        try:
+            msg = 'Error! Width must be a valid integer number > 1!'
+            # check whether valid numbers have been entered
+            w = int(self.width.text())
+            if w<2:
+                msg = 'Error! Width must be > 1!'
+                raise ValueError
+        except ValueError:
+            self.errorDialog(msg)
+        else:
+            part.unitWidth = w
+            return True
+        return False
+
+    def getLenValue(self, part):
+        try:
+            msg = 'Error! Length value must a valid integer number > 1!'
+            # check whether valid numbers have been entered
+            l = int(self.length.text())
+            if l<2:
+                msg = 'Error! Length must be > 1!'
+                raise ValueError
+        except ValueError:
+            self.errorDialog(msg)
+        else:
+            part.unitLength = l
+            return True
+        return False
+
+    def errorDialog(self, msg):
+        # Create a simple dialog QMessageBox
+        # The first argument indicates the icon used: one of QtGui.QMessageBox.{NoIcon, Information, Warning, Critical, Question} 
+        diag = QtGui.QMessageBox(QtGui.QMessageBox.Warning, 'Error in macro MessageBox', msg)
+        diag.setWindowModality(QtCore.Qt.ApplicationModal)
+        diag.exec_()
+
+    def createPartTile(self):
+        _tile = tile()
+        if self.getValues(_tile):
+            self.d.hide()
+            _tile.doTile()
+
+    def createPartConnector(self):
+        _tile = tile()
+        if self.getLenValue(_tile):
+            self.d.hide()
+            _tile.doConnector()
+
+    def createPartBracket(self):
+        _tile = tile()
+        if self.getLenValue(_tile):
+            self.d.hide()
+            _tile.doBracket()
+
+    def createPartHinge(self):
+        _tile = tile()
+        if self.getLenValue(_tile):
+            self.d.hide()
+            _tile.doHinge()
+
+class operateUI():
+    def __init__(self):
+##         self.d = QtGui.QWidget()
+#         self.d = widget()
+#         self.ui = Ui_Dialog()
+#         self.ui.d = self.d
+#         self.ui.setupUi(self.d)
+#         self.d.setWindowModality(QtCore.Qt.ApplicationModal)
+#         self.d.show()
+        d = widget()
+        self.ui = Ui_Dialog()
+        self.ui.d = d
+        self.ui.setupUi(d)
+        d.setWindowModality(QtCore.Qt.ApplicationModal)
+        d.show()
+
+'''
+
+'''
 class tile:
 
     def __init__(self):
@@ -60,6 +203,17 @@ class tile:
         self.partBody = None
         self.lcs = None
         self.extendedEdge = False
+        # Defaults for user entered values
+        self.thruMountHole = True
+        self.unitWidth = 4
+        self.unitLength = 3
+        self.tileWidth = 10*self.unitWidth
+        self.tileLength = 10*self.unitLength
+
+    def calcTileSize(self):
+        self.tileWidth = 10*self.unitWidth
+        self.tileLength = 10*self.unitLength
+
     '''
     FreeCAD organizes models in files called documents.
     If an active document exists, select that for use
@@ -93,6 +247,7 @@ class tile:
     Create a Part and Body object for model container
     ''' 
     def createPart(self, name):
+        self.calcTileSize()
         newTile = App.activeDocument().addObject('App::Part',name)
         # Get the name of the new tile.
         # If Part named Tile already exists, append counting number.
@@ -141,8 +296,8 @@ class tile:
 
         # Draw tile and extrude
         geoList = []
-        thw=tileWidth/2
-        thl=tileLength/2
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
         # Create line segments
         p1 = App.Vector(-thw,thl,0)
         p2 = App.Vector(thw ,thl,0)
@@ -165,10 +320,10 @@ class tile:
         conList.append(Sketcher.Constraint('Symmetric',0,2,2,2,-1,1)) 
 
         # tileLength
-        conList.append(Sketcher.Constraint('DistanceY',3,1,3,2,tileLength)) 
+        conList.append(Sketcher.Constraint('DistanceY',3,1,3,2,self.tileLength)) 
 
         # tileWidth
-        conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,tileWidth)) 
+        conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,self.tileWidth)) 
 
         conList.append(Sketcher.Constraint('Horizontal',0))
         conList.append(Sketcher.Constraint('Vertical',1))
@@ -188,8 +343,8 @@ class tile:
     '''
     def createObject_MountHole(self, name):
         # Hole Sketch
-        thw=tileWidth/2
-        thl=tileLength/2
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
 
         #sketchObj = App.ActiveDocument.addObject("Sketcher::SketchObject", "Sketch")
         sketchObj = self.docObj.addObject("Sketcher::SketchObject", name+"_skt")
@@ -212,7 +367,7 @@ class tile:
         pocket.Profile = sketchObj
         # 3.5 + (thruMountHole ? 0 : 1)
         len = 3.5
-        if thruMountHole==True:
+        if self.thruMountHole==True:
         	len+=1
         pocket.Length = len 
         pocket.Reversed = 1
@@ -229,21 +384,21 @@ class tile:
         holePatV = self.partBody.newObject('PartDesign::LinearPattern', name+'_vert_pattern')
         holePatV.Direction = (sketchObj,['V_Axis'])
         # tileLength - 20 < 1 ? 1 : tileLength - 20
-        len = tileLength - 20
-        if tileLength - 20 < 1:
+        len = self.tileLength - 20
+        if self.tileLength - 20 < 1:
             len=1 
         holePatV.Length = len
-        holePatV.Occurrences = unitLength - 1
+        holePatV.Occurrences = self.unitLength - 1
         holePatV.Reversed = 1
 
         holePatH = self.partBody.newObject('PartDesign::LinearPattern',name+'_horz_pattern')
         holePatH.Direction = (sketchObj,['H_Axis'])
         # tileWidth - 20 < 1 ? 1 : tileWidth - 20
-        len = tileWidth - 20
-        if tileWidth - 20 < 1:
+        len = self.tileWidth - 20
+        if self.tileWidth - 20 < 1:
         	len=1 
         holePatH.Length = len
-        holePatH.Occurrences = unitWidth - 1
+        holePatH.Occurrences = self.unitWidth - 1
         #holePatH.Reversed = 1
         multiTransform.Transformations = [holePatV,holePatH]
         multiTransform.Visibility=True
@@ -277,7 +432,7 @@ class tile:
         if orient=='U':
             # OriginFeatures[5] is the YZ plane
             sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
-
+            sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-(self.tileWidth/2)-4),App.Rotation(App.Vector(0,0,1),0))
         # Slot sizes
         narrow = 4/2
         wide = 7/2
@@ -382,16 +537,16 @@ class tile:
         holePatV = self.partBody.newObject('PartDesign::LinearPattern', name+'_LinearPattern')
 
         holePatV.Direction = (sketchObj,['V_Axis'])
-        dim = tileLength
-        unit = unitLength
+        dim = self.tileLength
+        unit = self.unitLength
         if orient == 'S':
             holePatV.Direction = (sketchObj,['H_Axis'])
-            dim = tileWidth
-            unit = unitWidth
+            dim = self.tileWidth
+            unit = self.unitWidth
         elif orient=='U':
             holePatV.Direction = (sketchObj,['H_Axis'])
-            dim = tileLength
-            unit = unitLength
+            dim = self.tileLength
+            unit = self.unitLength
         # len - 20 < 1 ? 1 : len - 20
         len = dim - 20
         if dim - 20 < 1:
@@ -434,13 +589,13 @@ class tile:
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
         if orient == 'S':
             # OriginFeatures[5] is the YZ plane
             sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
-            len = tileWidth
-            wid = tileLength
+            len = self.tileWidth
+            wid = self.tileLength
         sketchObj.Visibility=False
 
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
@@ -449,13 +604,23 @@ class tile:
         # Height = 2mm
         # Width = 4mm
         # Length = tileLength - 18
-        p1=App.Vector(-wid/2  ,0,0)
-        p2=App.Vector(-wid/2  ,2,0)
-        p3=App.Vector(-wid/2+2,2,0)
-        p4=App.Vector(-wid/2+2,0,0)
+        xorg=-wid/2
+        yorg=0
+        p1=App.Vector(xorg  ,yorg  ,0)
+        p2=App.Vector(xorg  ,yorg+2,0)
+        p3=App.Vector(xorg+2,yorg+2,0)
+        p4=App.Vector(xorg+2,yorg  ,0)
         if orient == 'W':
-            p3=App.Vector(-wid/2-2,2,0)
-            p4=App.Vector(-wid/2-2,0,0)
+            p3=App.Vector(xorg-2,2,0)
+            p4=App.Vector(xorg-2,0,0)
+        if orient == 'U':
+            xorg=-wid/2-4
+            yorg=4
+            p1=App.Vector(xorg  ,yorg  ,0)
+            p2=App.Vector(xorg+2,yorg  ,0)
+            p3=App.Vector(xorg+2,yorg+2,0)
+            p4=App.Vector(xorg  ,yorg+2,0)
+
         geoList.append(Part.LineSegment(p1,p2))
         geoList.append(Part.LineSegment(p2,p3))
         geoList.append(Part.LineSegment(p3,p4))
@@ -472,10 +637,18 @@ class tile:
         conList.append(Sketcher.Constraint('Coincident',3,2,0,1))
 #         conList.append(Sketcher.Constraint('DistanceX',1,1,1,2,2.000000))
 #         conList.append(Sketcher.Constraint('DistanceY',2,2,2,1,2.000000))
-        conList.append(Sketcher.Constraint('Vertical',0))
-        conList.append(Sketcher.Constraint('Horizontal',1))
-        conList.append(Sketcher.Constraint('Vertical',2))
-        conList.append(Sketcher.Constraint('Horizontal',3))
+        if orient=='U':
+            conList.append(Sketcher.Constraint('Horizontal',0))
+            conList.append(Sketcher.Constraint('Vertical',1))
+            conList.append(Sketcher.Constraint('Horizontal',2))
+            conList.append(Sketcher.Constraint('Vertical',3))
+            conList.append(Sketcher.Constraint('DistanceX',0,1,0,2,2.0))
+            conList.append(Sketcher.Constraint('DistanceY',1,1,1,2,2.000000))
+        else:
+            conList.append(Sketcher.Constraint('Vertical',0))
+            conList.append(Sketcher.Constraint('Horizontal',1))
+            conList.append(Sketcher.Constraint('Vertical',2))
+            conList.append(Sketcher.Constraint('Horizontal',3))
         sketchObj.addConstraint(conList)
 
         ## Pad(key=True) or Pocket(slot)
@@ -503,13 +676,13 @@ class tile:
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
         if orient != 'E':
             # OriginFeatures[5] is the YZ plane
             sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
-            len = tileWidth
-            wid = tileLength
+            len = self.tileWidth
+            wid = self.tileLength
         sketchObj.Visibility=False
 
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
@@ -574,8 +747,8 @@ class tile:
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
         sketchObj.Visibility=False
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
 
         # Snip shape
         xwid = 0.7
@@ -662,8 +835,8 @@ class tile:
         sketchObj.MapMode='FlatFace'
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
         geoList = []
         # A drawing in 8 points!
         p1=App.Vector(-wid/2-5  , 9.5,0)
@@ -742,8 +915,8 @@ class tile:
 
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
         geoList = []
         # A drawing in 8 points!
         p1=App.Vector(-wid/2-4  , 4.0,0)
@@ -788,18 +961,18 @@ class tile:
         Xvar=-wid/2-2
         Yvar=2
         sketchObj.addGeometry(Part.Circle(App.Vector(Xvar,Yvar,0),App.Vector(0,0,1),radius),False)
-        sketchObj.addConstraint(Sketcher.Constraint('DistanceY',6,3,0,2,2.000000))
-        sketchObj.addConstraint(Sketcher.Constraint('DistanceX',6,3,0,2,2.000000))
+        sketchObj.addConstraint(Sketcher.Constraint('DistanceY',6,3,0,2,2.0))
+        sketchObj.addConstraint(Sketcher.Constraint('DistanceX',6,3,0,2,2.0))
         sketchObj.addConstraint(Sketcher.Constraint('Radius',6,radius))
 
         # 
         # TODO Compute X & Y vector values
-        sketchObj.fillet(3,4,App.Vector(-15.0,-0.5,0),App.Vector(-16.0,-1.0,0),0.5,True,True)
-        sketchObj.addConstraint(Sketcher.Constraint('Radius',7,0.500000))
-        sketchObj.fillet(4,5,App.Vector(-23.5,-1.0,0),App.Vector(-24.0,-0.5,0),0.5,True,True)
-        sketchObj.addConstraint(Sketcher.Constraint('Radius',9,0.500000))
-        sketchObj.fillet(5,0,App.Vector(-24.0,3,0),App.Vector(-23.5,4,0),2.0,True,True)
-        sketchObj.addConstraint(Sketcher.Constraint('Radius',11,2.0))
+#         sketchObj.fillet(3,4,App.Vector(-15.0,-0.5,0),App.Vector(-16.0,-1.0,0),0.5,True,True)
+#         sketchObj.addConstraint(Sketcher.Constraint('Radius',7,0.500000))
+#         sketchObj.fillet(4,5,App.Vector(-23.5,-1.0,0),App.Vector(-24.0,-0.5,0),0.5,True,True)
+#         sketchObj.addConstraint(Sketcher.Constraint('Radius',9,0.500000))
+#         sketchObj.fillet(5,0,App.Vector(-24.0,3,0),App.Vector(-23.5,4,0),2.0,True,True)
+#         sketchObj.addConstraint(Sketcher.Constraint('Radius',11,2.0))
 
         # Object
         pad = self.partBody.newObject('PartDesign::Pad',name+'_obj')
@@ -828,8 +1001,8 @@ class tile:
 
         # OriginFeatures[4] is the XZ plane
         sketchObj.Support = self.partBody.Origin.OriginFeatures[4]
-        len = tileLength
-        wid = tileWidth
+        len = self.tileLength
+        wid = self.tileWidth
         geoList = []
 
         # Snip shape
@@ -875,8 +1048,8 @@ class tile:
         multiTransform.Originals = [newObj,]
         holePatV = self.partBody.newObject('PartDesign::LinearPattern',name+'_LinearPattern')
         holePatV.Direction = (sketchObj,['N_Axis'])
-        holePatV.Length = tileWidth-10
-        holePatV.Occurrences = unitWidth
+        holePatV.Length = self.tileWidth-10
+        holePatV.Occurrences = self.unitWidth
         holePatV.Reversed = 0
 
         multiTransform.Transformations = [holePatV]
@@ -902,7 +1075,9 @@ class tile:
     '''
     def doTile(self):
         self.createOrGetDoc(docName)
-        self.createPart(tileName)
+        self.createPart(tileName+"_"+str(self.unitWidth)+"x"+str(self.unitLength))
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
 
         # Create Body and tile object
         self.createObject_Tile('tile_base')
@@ -912,8 +1087,6 @@ class tile:
         lastObj = self.createObject_MountHoleArray('tile_mount_array', pocket, sketchObj)
 
         # V E R T I C A L
-        thw=tileWidth/2
-        thl=tileLength/2
         # Object: Vert, East facing slot
         (pocket, sketchObj) = self.createObject_SlotKey("tile_vert_slot", lastObj,-thw,-thl+10,'E', False)
         # Object: Vert Slot and Polar Array
@@ -944,11 +1117,11 @@ class tile:
     Part: Connector
     '''
     def doConnector(self):
-        thw=tileWidth/2
-        thl=tileLength/2
-
         self.createOrGetDoc(docName)
-        partName = self.createPart("connector")
+        partName = self.createPart("connector"+"_"+str(self.unitLength)+"x")
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
+
         # Reset LCS
         self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
 
@@ -980,11 +1153,11 @@ class tile:
     Part: Bracket
     '''
     def doBracket(self):
-        thw=tileWidth/2
-        thl=tileLength/2
-
         self.createOrGetDoc(docName)
-        partName = self.createPart("bracket")
+        partName = self.createPart("bracket"+"_"+str(self.unitLength)+"x")
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
+
         # Reset LCS
         self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
 
@@ -1004,13 +1177,11 @@ class tile:
         (lastObj, sketchObj) = self.createObject_BracketBacker("bracket_backer", lastObj, 'E')
 
         # Side 2
-#         # Obj: Key Connector
-#         (connector, sketchObj) = self.createObject_Connector('bracket_bk_spine', lastObj, 'U', True)
-#         lastObj=connector
+        # Obj: Key Connector
+        (lastObj, sketchObj) = self.createObject_Connector('bracket_bk_spine', lastObj, 'U', True)
         # Obj: Key
-        (pad, sketchObj) = self.createObject_SlotKey("bracket_bk_key", lastObj,-thw+15, 4, 'U', True)
-#         sketchObj.Placement.Base=App.Vector(15,9,-24)
-        sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-24),App.Rotation(App.Vector(0,0,1),0))
+        (pad, sketchObj) = self.createObject_SlotKey("bracket_bk_key", lastObj,-thl+10, 4, 'U', True)
+#         sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-thw-4),App.Rotation(App.Vector(0,0,1),0))
         # Obj: Key Array
         lastObj = self.createObject_SlotKeyArray('bracket_bk_key_array', pad, sketchObj,'U')
         # Obj: Latch Notch
@@ -1024,11 +1195,11 @@ class tile:
     Part: Hinge
     '''
     def doHinge(self):
-        thw=tileWidth/2
-        thl=tileLength/2
-
         self.createOrGetDoc(docName)
-        partName = self.createPart("hinge")
+        partName = self.createPart("hinge"+"_"+str(self.unitLength)+"x")
+        thw=self.tileWidth/2
+        thl=self.tileLength/2
+
         # Reset LCS
         self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
 
@@ -1058,16 +1229,23 @@ class tile:
 
 #X TODO: Finish basic implementation
 #X TODO: Add lcs to tile for assembly
+#X TODO: Add dimensional constraints
 
-## TODO: Add fillet to slot corners
+## TODO: Bracket - fix upper latch notch dimensions
+## TODO: Add fillet to slot and key [createObject_SlotKey()] corners.
 ## TODO: Add lcs to bracket, hinge and connector for assembly
 ## TODO: Query user for dimensions
-## TODO: Add constraints
+## TODO: Add positional constraints
+
+x=operateUI()
+
+# x=Ui_Dialog()
+# x.showPlane()
 
 # Instantiate tile object
-_tile = tile()
+# _tile = tile()
 # Model a tile
-_tile.doTile()
-_tile.doConnector()
-_tile.doBracket()
+# _tile.doTile()
+# _tile.doConnector()
+# _tile.doBracket()
 # _tile.doHinge()
