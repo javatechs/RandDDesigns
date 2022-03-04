@@ -56,9 +56,9 @@ class Ui_Dialog(object):
 
     def setupUi(self, Dialog):
         Dialog.setObjectName("Dialog")
-        Dialog.resize(280, 300)
+        Dialog.resize(280, 340)
         self.title = QtGui.QLabel(Dialog)
-        self.title.setGeometry(QtCore.QRect(10, 10, 271, 30))
+        self.title.setGeometry(QtCore.QRect(10, 10, 260, 30))
         self.title.setObjectName("title")
         self.label_width = QtGui.QLabel(Dialog)
         self.label_width.setGeometry(QtCore.QRect(30, 60, 57, 16))
@@ -72,25 +72,40 @@ class Ui_Dialog(object):
         self.length = QtGui.QLineEdit(Dialog)
         self.length.setGeometry(QtCore.QRect(100, 82, 60, 26))
         self.length.setObjectName("length")
+        #
+        self.label_hole = QtGui.QLabel(Dialog)
+        self.label_hole.setGeometry(QtCore.QRect(30, 120, 90, 16))
+        self.label_hole.setObjectName("label_hole")
+        self.throughHole = QtGui.QCheckBox(Dialog)
+        self.throughHole.setGeometry(QtCore.QRect(140, 116, 60, 26))
+        self.throughHole.setChecked(True)
+
+        self.label_extend = QtGui.QLabel(Dialog)
+        self.label_extend.setGeometry(QtCore.QRect(30, 140, 90, 16))
+        self.label_extend.setObjectName("label_extend")
+        self.extendedEdge = QtGui.QCheckBox(Dialog)
+        self.extendedEdge.setGeometry(QtCore.QRect(140, 136, 60, 26))
+        self.extendedEdge.setChecked(False)
+
         self.label_create = QtGui.QLabel(Dialog)
-        self.label_create.setGeometry(QtCore.QRect(30, 130, 80, 16))
+        self.label_create.setGeometry(QtCore.QRect(30, 170, 80, 16))
         self.label_create.setObjectName("label_create")
         #
         width=80
         self.createTile = QtGui.QPushButton(Dialog)
-        self.createTile.setGeometry(QtCore.QRect(30, 150, width, 26))
+        self.createTile.setGeometry(QtCore.QRect(30, 190, width, 26))
         self.createTile.setObjectName("create_tile")
-        self.createConnector = QtGui.QPushButton(Dialog)
-        self.createConnector.setGeometry(QtCore.QRect(30, 180, width, 26))
-        self.createConnector.setObjectName("create_connector")
         self.createHinge = QtGui.QPushButton(Dialog)
-        self.createHinge.setGeometry(QtCore.QRect(120, 150, width, 26))
+        self.createHinge.setGeometry(QtCore.QRect(120, 190, width, 26))
         self.createHinge.setObjectName("create_hinge")
+        self.createConnector = QtGui.QPushButton(Dialog)
+        self.createConnector.setGeometry(QtCore.QRect(30, 220, width, 26))
+        self.createConnector.setObjectName("create_connector")
         self.createBracket = QtGui.QPushButton(Dialog)
-        self.createBracket.setGeometry(QtCore.QRect(120, 180, width, 26))
+        self.createBracket.setGeometry(QtCore.QRect(120, 220, width, 26))
         self.createBracket.setObjectName("create_bracket")
         self.cancel = QtGui.QPushButton(Dialog)
-        self.cancel.setGeometry(QtCore.QRect(30, 250, 160, 26))
+        self.cancel.setGeometry(QtCore.QRect(30, 270, 160, 26))
         self.cancel.setObjectName("cancel")
 
         self.retranslateUi(Dialog)
@@ -104,9 +119,12 @@ class Ui_Dialog(object):
     def retranslateUi(self, Dialog):
         Dialog.setWindowTitle("Dialog")
         self.title.setText("Tile Generator Macro\n(Use whole centimeters. Minimum of 2.)")
-#         self.title.setColor(QPalette.Window, Qt.white);
+#         self.title.setStyleSheet("background-color: lightblue")
+        self.title.setStyleSheet("background-color: yellow; border: 1px solid black;")
         self.label_width.setText("Width")
         self.label_length.setText("Length *")
+        self.label_hole.setText("Through hole")
+        self.label_extend.setText("Extend edge")
         self.label_create.setText("Create Part...")
         self.createTile.setText("&Tile")
         self.createConnector.setText("&Connector")
@@ -115,6 +133,8 @@ class Ui_Dialog(object):
         self.cancel.setText("Cancel")
 
     def getValues(self, part):
+        part.thruMountHole = self.throughHole.isChecked()
+
         self.getLenValue(part)
         try:
             msg = 'Error! Width must be a valid integer number > 1!'
@@ -172,7 +192,7 @@ class Ui_Dialog(object):
 
     def createPartHinge(self):
         _tile = tile()
-        if self.getLenValue(_tile):
+        if self.getValues(_tile):
             self.d.hide()
             _tile.doHinge()
 
@@ -203,12 +223,27 @@ class tile:
         self.partBody = None
         self.lcs = None
         self.extendedEdge = False
+        #
+        self.slot_narrow = 4
+        self.slot_wide = 7
+        self.slot_depth = 5
+        self.slot_height = 3.5
+
+        self.key_narrow = 3.6
+        self.key_wide = 6.6
+        self.key_depth = 4.85
+        self.key_height = 3.4
+        
+        self.radius = 0.5
+
         # Defaults for user entered values
         self.thruMountHole = True
         self.unitWidth = 4
         self.unitLength = 3
         self.tileWidth = 10*self.unitWidth
         self.tileLength = 10*self.unitLength
+        # Extend outer edge to limits? 1=yes; 0=no
+        self.extendedEdge = False
 
     def calcTileSize(self):
         self.tileWidth = 10*self.unitWidth
@@ -434,14 +469,17 @@ class tile:
             sketchObj.Support = self.partBody.Origin.OriginFeatures[5]
             sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-(self.tileWidth/2)-4),App.Rotation(App.Vector(0,0,1),0))
         # Slot sizes
-        narrow = 4/2
-        wide = 7/2
-        depth = 5
+        narrow = self.slot_narrow/2
+        wide = self.slot_wide/2
+        depth = self.slot_depth
+        height = self.slot_height
         if key:
             # Key sizes
-            narrow = 3.6/2
-            wide = 6.6/2
-            depth = 4.85
+            narrow = self.key_narrow/2
+            wide = self.key_wide/2
+            depth = self.key_depth
+            height = self.key_height
+
         # See https://github.com/ebrahimraeyat/Civil/blob/5d25dfd47aae8f310b9e73ab780889cfb31e278a/safe/punch/axis.py
         geoList = []
         # Create line segments
@@ -453,21 +491,25 @@ class tile:
             p2=App.Vector(xorg      , yorg+narrow, 0.0)
             p3=App.Vector(xorg+depth, yorg+wide  , 0.0)
             p4=App.Vector(xorg+depth, yorg-wide  , 0.0)
+            p5=Part.Point(App.Vector(xorg+depth, yorg,0))
         elif orient=='W':
             p1=App.Vector(xorg      , yorg-narrow, 0.0)
             p2=App.Vector(xorg      , yorg+narrow, 0.0)
             p3=App.Vector(xorg-depth, yorg+wide  , 0.0)
             p4=App.Vector(xorg-depth, yorg-wide  , 0.0)
+            p5=Part.Point(App.Vector(xorg-depth, yorg,0))
         else:
             p1=App.Vector(xorg-narrow, yorg      , 0.0)
             p2=App.Vector(xorg+narrow, yorg      , 0.0)
             p3=App.Vector(xorg+wide  , yorg+depth, 0.0)
             p4=App.Vector(xorg-wide  , yorg+depth, 0.0)
+            p5=Part.Point(App.Vector(xorg, yorg+depth,0))
 
         geoList.append(Part.LineSegment(p1,p2))
         geoList.append(Part.LineSegment(p2,p3))
         geoList.append(Part.LineSegment(p3,p4))
         geoList.append(Part.LineSegment(p4,p1))
+        geoList.append(p5)
         sketchObj.addGeometry(geoList,False)
 
         # Constraints
@@ -508,18 +550,19 @@ class tile:
         if key:
             # Key
             pocket = self.partBody.newObject('PartDesign::Pad',name+'_obj')
-            len = 3.5
+            len = self.key_height
             pocket.Reversed = 0
         else:
             # Slot
             pocket = self.partBody.newObject('PartDesign::Pocket',name+' obj')
-            len = 3.5
+            len = self.slot_height
             pocket.Reversed = 1
         pocket.Profile = sketchObj
         pocket.Length = len 
         pocket.Visibility=True
         self.partBody.removeObject(pocket)
         self.partBody.insertObject(pocket, afterObj, True)
+
         return pocket, sketchObj
 
     '''
@@ -531,9 +574,9 @@ class tile:
     sketchObject:    Used for object orientation
     orient           One of 'S', 'U' or other.
     '''
-    def createObject_SlotKeyArray(self, name, inputObject, sketchObj, orient):
+    def createObject_SlotKeyArray(self, name, inputObject, list, sketchObj, orient):
         multiTransform = self.partBody.newObject('PartDesign::MultiTransform', name)
-        multiTransform.Originals = [inputObject,]
+        multiTransform.Originals = list
         holePatV = self.partBody.newObject('PartDesign::LinearPattern', name+'_LinearPattern')
 
         holePatV.Direction = (sketchObj,['V_Axis'])
@@ -563,8 +606,8 @@ class tile:
     '''
     Using the input slot or key object, create a linear and then polar array.
     '''
-    def createObject_SlotKeyArrayPolar(self, name, inputObject, sketchObj, orient):
-        multiTransform = self.createObject_SlotKeyArray(name, inputObject, sketchObj, orient)
+    def createObject_SlotKeyArrayPolar(self, name, inputObject, list, sketchObj, orient):
+        multiTransform = self.createObject_SlotKeyArray(name, inputObject, list, sketchObj, orient)
 
         polar = self.partBody.newObject('PartDesign::PolarPattern',name+'_PolarPattern')
         polar.Axis = (sketchObj,['N_Axis'])
@@ -1089,8 +1132,10 @@ class tile:
         # V E R T I C A L
         # Object: Vert, East facing slot
         (pocket, sketchObj) = self.createObject_SlotKey("tile_vert_slot", lastObj,-thw,-thl+10,'E', False)
+        list = []
+        list.append(pocket)
         # Object: Vert Slot and Polar Array
-        lastObj = self.createObject_SlotKeyArrayPolar('tile_vert_slot_array', pocket, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArrayPolar('tile_vert_slot_array', pocket, list, sketchObj,'E')
         # Object: Vert Slot Connector
         (connectorArray, sketchObj) = self.createObject_Connector('tile_vspine_slot', lastObj, 'E', False)
         # Object: Vert Latch
@@ -1101,8 +1146,10 @@ class tile:
         # H O R I Z O N T A L
         # Object: Horz, South facing Slot
         (pocket, sketchObj) = self.createObject_SlotKey("tile_horz_slot", lastObj,-thw+10,-thl,'S', False)
+        list = []
+        list.append(pocket)
         # Object: Horz Slot and Polar Array
-        lastObj = self.createObject_SlotKeyArrayPolar('tile_horz_slot_array', pocket, sketchObj,'S')
+        lastObj = self.createObject_SlotKeyArrayPolar('tile_horz_slot_array', pocket, list, sketchObj,'S')
         # Object: Horz Slot Connector
         (connectorArray, sketchObj) = self.createObject_Connector('tile_hspine_slot', lastObj, 'S', False)
         # Object: Horz Latch
@@ -1126,23 +1173,35 @@ class tile:
         self.lcs.AttachmentOffset = App.Placement(App.Vector(-thw,0,0),App.Rotation(App.Vector(0,0,1),0))
 
         lastObj=None
+        #####
         # Side 1
-        # Obj: Key spine
+        #####
+        # Obj: Key spine rspine
         (lastObj, sketchObj) = self.createObject_Connector('rspine', lastObj, 'E', True)
-        # Obj: Key
+        # Obj: Key rspine
         (lastObj, sketchObj) = self.createObject_SlotKey("rspine_key", lastObj,-thw,-thl+10,'E', True)
+        rspine_key_skt = sketchObj
+        list=[]
+        list.append(lastObj)
+
         # Obj: Key Array
-        lastObj = self.createObject_SlotKeyArray('rspine_key_array', lastObj, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArray('rspine_key_array', lastObj, list, rspine_key_skt,'E')
         # Obj: Latch Notch
         (lastObj, sketchObj) = self.createObject_LatchNotch('rspine_latch_notch', lastObj, 'E')
 
+        #####
         # Side 2
+        #####
         # Obj: Key Connector
         (lastObj, sketchObj) = self.createObject_Connector('lspine', lastObj, 'W', True)
         # Obj: Key
         (lastObj, sketchObj) = self.createObject_SlotKey("lspine_key", lastObj,-thw,-thl+10,'W', True)
+        lspine_key_skt = sketchObj
+        list=[]
+        list.append(lastObj)
+
         # Obj: Key Array
-        lastObj = self.createObject_SlotKeyArray('lspine_key_array', lastObj, sketchObj,'W')
+        lastObj = self.createObject_SlotKeyArray('lspine_key_array', lastObj, list, lspine_key_skt,'W')
         # Obj: Latch Notch
         (lastObj, sketchObj) = self.createObject_LatchNotch('lspine_latch_notch', lastObj, 'W')
 
@@ -1167,10 +1226,11 @@ class tile:
         (connector, sketchObj) = self.createObject_Connector('bracket_lwr_spine', lastObj, 'E', True)
         lastObj=connector
         # Obj: Key
-        (pad, sketchObj) = self.createObject_SlotKey("bracket_lwr_key", lastObj,-thw,-thl+10,'E', True)
-        lastObj=pad
+        (lastObj, sketchObj) = self.createObject_SlotKey("bracket_lwr_key", lastObj,-thw,-thl+10,'E', True)
+        list=[]
+        list.append(lastObj)
         # Obj: Key Array
-        lastObj = self.createObject_SlotKeyArray('bracket_lwr_key_array', pad, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArray('bracket_lwr_key_array', lastObj, list, sketchObj,'E')
         # Obj: Latch Notch
         (lastObj, sketchObj) = self.createObject_LatchNotch('bracket_lwr_latch_notch', lastObj, 'E')
 
@@ -1180,10 +1240,12 @@ class tile:
         # Obj: Key Connector
         (lastObj, sketchObj) = self.createObject_Connector('bracket_bk_spine', lastObj, 'U', True)
         # Obj: Key
-        (pad, sketchObj) = self.createObject_SlotKey("bracket_bk_key", lastObj,-thl+10, 4, 'U', True)
+        (lastObj, sketchObj) = self.createObject_SlotKey("bracket_bk_key", lastObj,-thl+10, 4, 'U', True)
 #         sketchObj.AttachmentOffset = App.Placement(App.Vector(0,0,-thw-4),App.Rotation(App.Vector(0,0,1),0))
+        list=[]
+        list.append(lastObj)
         # Obj: Key Array
-        lastObj = self.createObject_SlotKeyArray('bracket_bk_key_array', pad, sketchObj,'U')
+        lastObj = self.createObject_SlotKeyArray('bracket_bk_key_array', lastObj, list, sketchObj,'U')
         # Obj: Latch Notch
         (lastObj, sketchObj) = self.createObject_LatchNotch('bracket_bk_latch_notch', lastObj, 'U')
  
@@ -1209,8 +1271,12 @@ class tile:
         (lastObj, sketchObj) = self.createObject_Connector('hinge_key_spine', lastObj, 'E', True)
         # Object: Key
         (lastObj, sketchObj) = self.createObject_SlotKey("hinge_key", lastObj,-thw,-thl+10,'E', True)
+        hingeKeySkt=sketchObj
+        list=[]
+        list.append(lastObj)
+
         # Object: Key Array
-        lastObj = self.createObject_SlotKeyArray('hinge_key_array', lastObj, sketchObj,'E')
+        lastObj = self.createObject_SlotKeyArray('hinge_key_array', lastObj, list, hingeKeySkt,'E')
 
         # Object: Hinge frame
         (lastObj, sketchObj) = self.createObject_HingeBody('hinge_frame', lastObj, 'E')
@@ -1230,12 +1296,17 @@ class tile:
 #X TODO: Finish basic implementation
 #X TODO: Add lcs to tile for assembly
 #X TODO: Add dimensional constraints
+#X TODO: Add fillet to slot and key [createObject_SlotKey()] corners.
+#X TODO: Query user for dimensions
 
+## TODO: Add fillet to key [createObject_SlotKey()] top hinge edges.
+## TODO: Add fillet to key [createObject_SlotKey()] top bracket edges.
+## TODO: Add fillet to key [createObject_SlotKey()] top connector edges.
+## TODO: Curve notch.
 ## TODO: Bracket - fix upper latch notch dimensions
-## TODO: Add fillet to slot and key [createObject_SlotKey()] corners.
 ## TODO: Add lcs to bracket, hinge and connector for assembly
-## TODO: Query user for dimensions
 ## TODO: Add positional constraints
+## TODO: Test build
 
 x=operateUI()
 
